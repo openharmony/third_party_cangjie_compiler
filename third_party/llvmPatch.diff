@@ -2330,6 +2330,37 @@ index 3c2cd85f5..c2f314c4f 100644
  #include "lldb/API/SBWatchpoint.h"
 +#include "lldb/API/SBMixedArkTSDebugger.h"
  %}
+diff --git a/lldb/bindings/interface/SBMixedArkTSDebugger.i b/lldb/bindings/interface/SBMixedArkTSDebugger.i
+new file mode 100644
+index 000000000..7b394390f
+--- /dev/null
++++ b/lldb/bindings/interface/SBMixedArkTSDebugger.i
+@@ -0,0 +1,25 @@
++//===-- SBMixedArkTSDebugger.h --------------------------------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++namespace lldb {
++
++%feature("docstring",
++"Represents a list of :py:class:`SBMixedArkTSDebugger`."
++) SBMixedArkTSDebugger;
++class SBMixedArkTSDebugger
++{
++public:
++
++    SBMixedArkTSDebugger ();
++
++    SBMixedArkTSDebugger (const lldb::SBMixedArkTSDebugger &rhs);
++
++    ~SBMixedArkTSDebugger ();
++};
++
++} // namespace lldb
 diff --git a/lldb/bindings/interfaces.swig b/lldb/bindings/interfaces.swig
 index c9a6d0f06..d3c81050d 100644
 --- a/lldb/bindings/interfaces.swig
@@ -2342,10 +2373,7 @@ index c9a6d0f06..d3c81050d 100644
  %include "./interface/SBModule.i"
  %include "./interface/SBModuleSpec.i"
  %include "./interface/SBPlatform.i"
-diff --git a/lldb/docs/CJDB_Architecture_Diagram.png b/lldb/docs/CJDB_Architecture_Diagram.png
-new file mode 100644
-index 000000000..43c9a54de
-Binary files /dev/null and b/lldb/docs/CJDB_Architecture_Diagram.png differ
+
 diff --git a/lldb/include/lldb/API/LLDB.h b/lldb/include/lldb/API/LLDB.h
 index eacbbeafc..f5b68f14c 100644
 --- a/lldb/include/lldb/API/LLDB.h
@@ -2373,10 +2401,10 @@ index ecf1dc34d..373271de5 100644
  #if defined(LLDB_IN_LIBLLDB)
 diff --git a/lldb/include/lldb/API/SBMixedArkTSDebugger.h b/lldb/include/lldb/API/SBMixedArkTSDebugger.h
 new file mode 100644
-index 000000000..b98365d34
+index 000000000..aba32338c
 --- /dev/null
 +++ b/lldb/include/lldb/API/SBMixedArkTSDebugger.h
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,36 @@
 +//===-- SBMixedArkTSDebugger.h --------------------------------------------===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -2405,6 +2433,8 @@ index 000000000..b98365d34
 +  ~SBMixedArkTSDebugger();
 +
 +  lldb::SBData GetBackTrace(SBError &er);
++
++  lldb::SBData OperateDebugMessage(const char *message, SBError &er);
 +
 +};
 +
@@ -2666,7 +2696,7 @@ index 505e211e0..38507aae3 100644
  
  /// RAII guard that should be acquired when an utility function is called within
 diff --git a/lldb/include/lldb/Target/Target.h b/lldb/include/lldb/Target/Target.h
-index 294fd96bc..eadb6f127 100644
+index 294fd96bc..ca5a19f12 100644
 --- a/lldb/include/lldb/Target/Target.h
 +++ b/lldb/include/lldb/Target/Target.h
 @@ -429,10 +429,15 @@ public:
@@ -2685,7 +2715,7 @@ index 294fd96bc..eadb6f127 100644
    bool m_coerce_to_id = false;
    bool m_unwind_on_error = true;
    bool m_ignore_breakpoints = false;
-@@ -1560,6 +1565,23 @@ public:
+@@ -1560,6 +1565,21 @@ public:
  
    TargetStats &GetStatistics() { return m_stats; }
  
@@ -2704,8 +2734,7 @@ index 294fd96bc..eadb6f127 100644
 +    ~CJThread() = default;
 +  };
 +
-+  std::vector<std::shared_ptr<struct CJThread>> GetAllCJThreadStatus(lldb_private::ExecutionContext &exe_ctx);
-+
+
  private:
    /// Construct with optional file and arch.
    ///
@@ -2817,10 +2846,10 @@ index ea9c2bb74..f146b05ca 100644
          if (name == nullptr) {
 diff --git a/lldb/source/API/SBMixedArkTSDebugger.cpp b/lldb/source/API/SBMixedArkTSDebugger.cpp
 new file mode 100644
-index 000000000..c2ef0427d
+index 000000000..b99f941e7
 --- /dev/null
 +++ b/lldb/source/API/SBMixedArkTSDebugger.cpp
-@@ -0,0 +1,39 @@
+@@ -0,0 +1,45 @@
 +//===-- SBMixedArkTSDebugger.cpp ------------------------------------------===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -2860,7 +2889,12 @@ index 000000000..c2ef0427d
 +
 +  return SBData();
 +}
-\ No newline at end of file
++
++lldb::SBData SBMixedArkTSDebugger::OperateDebugMessage(const char *message, SBError &er) {
++  LLDB_INSTRUMENT_VA(this, er);
++
++  return SBData();
++}
 diff --git a/lldb/source/API/SBTarget.cpp b/lldb/source/API/SBTarget.cpp
 index bf64bb342..1189f846f 100644
 --- a/lldb/source/API/SBTarget.cpp
@@ -3925,28 +3959,13 @@ index 23954dd3c..9b71e9466 100644
              }
            }
 diff --git a/lldb/source/Commands/CommandObjectProcess.cpp b/lldb/source/Commands/CommandObjectProcess.cpp
-index 28a99ea3d..7d2370a6c 100644
+index 28a99ea3d..1fe8a2d21 100644
 --- a/lldb/source/Commands/CommandObjectProcess.cpp
 +++ b/lldb/source/Commands/CommandObjectProcess.cpp
-@@ -107,6 +107,37 @@ protected:
+@@ -107,6 +107,22 @@ protected:
    std::string m_new_process_action;
  };
  
-+static void SetSigsegvForCangjie(ProcessSP process_sp) {
-+  // Set SIGSEGV as default action PASS:true STOP:false NOTIFY:false for gc.
-+  // Add "!" to pass_action is necessary according to lldb source code
-+  bool stop_action = false;
-+  bool pass_action = true;
-+  bool notify_action = false;
-+  UnixSignalsSP signals_sp = process_sp->GetUnixSignals();
-+  int32_t signo = signals_sp->GetSignalNumberFromName("SIGSEGV");
-+  if (signo != LLDB_INVALID_SIGNAL_NUMBER) {
-+    signals_sp->SetShouldStop(signo, stop_action);
-+    signals_sp->SetShouldSuppress(signo, !pass_action);
-+    signals_sp->SetShouldNotify(signo, notify_action);
-+  }
-+}
-+
 +#if defined(__APPLE__)
 +static void SetSigBusvForCangjie(ProcessSP process_sp) {
 +  // Set SIGBUS as default action PASS:true STOP:false NOTIFY:false for macos
@@ -3966,22 +3985,20 @@ index 28a99ea3d..7d2370a6c 100644
  // CommandObjectProcessLaunch
  #pragma mark CommandObjectProcessLaunch
  class CommandObjectProcessLaunch : public CommandObjectProcessLaunchOrAttach {
-@@ -256,6 +287,10 @@ protected:
+@@ -256,6 +272,9 @@ protected:
  
      if (error.Success()) {
        ProcessSP process_sp(target->GetProcessSP());
-+      SetSigsegvForCangjie(process_sp);
 +#if defined(__APPLE__)
 +      SetSigBusvForCangjie(process_sp);
 +#endif
        if (process_sp) {
          // There is a race condition where this thread will return up the call
          // stack to the main command handler and show an (lldb) prompt before
-@@ -421,6 +456,10 @@ protected:
+@@ -421,6 +440,9 @@ protected:
      if (error.Success()) {
        process_sp = target->GetProcessSP();
        if (process_sp) {
-+        SetSigsegvForCangjie(process_sp);
 +#if defined(__APPLE__)
 +        SetSigBusvForCangjie(process_sp);
 +#endif
@@ -4302,7 +4319,7 @@ index 0c4d9f78c..81b0f2afc 100644
    if (preference == ePreferDemangledWithoutArguments) {
      if (Language *lang = Language::FindPlugin(GuessLanguage())) {
 diff --git a/lldb/source/Core/ValueObject.cpp b/lldb/source/Core/ValueObject.cpp
-index d80139ab1..b23740023 100644
+index d80139ab1..d7cc614ac 100644
 --- a/lldb/source/Core/ValueObject.cpp
 +++ b/lldb/source/Core/ValueObject.cpp
 @@ -48,6 +48,8 @@
@@ -4572,8 +4589,8 @@ index d80139ab1..b23740023 100644
 +}
 +
 +bool ValueObject::IsCangjieGenericType() {
-+  if (GetCompilerType().GetTypeName().GetStringRef().contains("$G") ||
-+    GetCompilerType().GetTypeName().GetStringRef().contains("Interface$")) {
++  if (GetTypeName().GetStringRef().contains("$G") ||
++      GetTypeName().GetStringRef().contains("Interface$")) {
 +    return true;
 +  }
 +  if (GetCompilerType().GetTypeClass() ==lldb::eTypeClassTypedef) {
@@ -4965,7 +4982,7 @@ index 20a521b8e..cd0a4533a 100644
    summary_string.Clear();
  }
 diff --git a/lldb/source/Plugins/DynamicLoader/POSIX-DYLD/DynamicLoaderPOSIXDYLD.cpp b/lldb/source/Plugins/DynamicLoader/POSIX-DYLD/DynamicLoaderPOSIXDYLD.cpp
-index 8a708c1f9..f9ce18089 100644
+index 8a708c1f9..70910fd70 100644
 --- a/lldb/source/Plugins/DynamicLoader/POSIX-DYLD/DynamicLoaderPOSIXDYLD.cpp
 +++ b/lldb/source/Plugins/DynamicLoader/POSIX-DYLD/DynamicLoaderPOSIXDYLD.cpp
 @@ -24,6 +24,7 @@
@@ -4987,12 +5004,11 @@ index 8a708c1f9..f9ce18089 100644
      m_process->GetTarget().ModulesDidLoad(module_list);
    }
  }
-@@ -638,22 +643,25 @@ void DynamicLoaderPOSIXDYLD::LoadAllCurrentModules() {
+@@ -638,19 +643,40 @@ void DynamicLoaderPOSIXDYLD::LoadAllCurrentModules() {
    m_process->PrefetchModuleSpecs(
        module_names, m_process->GetTarget().GetArchitecture().GetTriple());
  
-+  llvm::ThreadPool pool(llvm::hardware_concurrency(DynamicLoaderPOSIXDYLD::DYLD_CONCURRENCY_THREADING));
-   for (I = m_rendezvous.begin(), E = m_rendezvous.end(); I != E; ++I) {
+-  for (I = m_rendezvous.begin(), E = m_rendezvous.end(); I != E; ++I) {
 -    ModuleSP module_sp =
 -        LoadModuleAtAddress(I->file_spec, I->link_addr, I->base_addr, true);
 -    if (module_sp.get()) {
@@ -5005,27 +5021,43 @@ index 8a708c1f9..f9ce18089 100644
 -          log,
 -          "DynamicLoaderPOSIXDYLD::%s failed loading module %s at 0x%" PRIx64,
 -          __FUNCTION__, I->file_spec.GetCString(), I->base_addr);
--    }
-+    constexpr const auto &func_name = __FUNCTION__;
-+    pool.async([&](const FileSpec &file_spec, addr_t link_addr, addr_t base_addr) {
-+        ModuleSP module_sp =
-+            LoadModuleAtAddress(file_spec, link_addr, base_addr, true);
-+        if (module_sp.get()) {
-+          LLDB_LOG(log, "LoadAllCurrentModules loading module: {0}", file_spec.GetFilename());
-+          module_list.Append(module_sp);
-+        } else {
-+          LLDB_LOGF(
-+              log,
-+              "DynamicLoaderPOSIXDYLD::%s failed loading module %s at 0x%" PRIx64,
-+              func_name, file_spec.GetCString(), base_addr);
-+        }
-+      }, I->file_spec, I->link_addr, I->base_addr);
++  if (m_process->GetTarget().GetArchitecture().GetTriple().str().find("ohos") != std::string::npos) {
++    llvm::ThreadPool pool(llvm::hardware_concurrency(DynamicLoaderPOSIXDYLD::DYLD_CONCURRENCY_THREADING));
++    for (I = m_rendezvous.begin(), E = m_rendezvous.end(); I != E; ++I) {
++      constexpr const auto &func_name = __FUNCTION__;
++      pool.async([&](const FileSpec &file_spec, addr_t link_addr, addr_t base_addr) {
++          ModuleSP module_sp =
++              LoadModuleAtAddress(file_spec, link_addr, base_addr, true);
++          if (module_sp.get()) {
++            LLDB_LOG(log, "LoadAllCurrentModules loading module: {0}", file_spec.GetFilename());
++            module_list.Append(module_sp);
++          } else {
++            LLDB_LOGF(
++                log,
++                "DynamicLoaderPOSIXDYLD::%s failed loading module %s at 0x%" PRIx64,
++                func_name, file_spec.GetCString(), base_addr);
++          }
++        }, I->file_spec, I->link_addr, I->base_addr);
++    }
++    pool.wait();
++  } else {
++    for (I = m_rendezvous.begin(), E = m_rendezvous.end(); I != E; ++I) {
++      ModuleSP module_sp =
++          LoadModuleAtAddress(I->file_spec, I->link_addr, I->base_addr, true);
++      if (module_sp.get()) {
++        LLDB_LOG(log, "LoadAllCurrentModules loading module: {0}",
++                I->file_spec.GetFilename());
++        module_list.Append(module_sp);
++      } else {
++        Log *log = GetLog(LLDBLog::DynamicLoader);
++        LLDB_LOGF(
++            log,
++            "DynamicLoaderPOSIXDYLD::%s failed loading module %s at 0x%" PRIx64,
++            __FUNCTION__, I->file_spec.GetCString(), I->base_addr);
++      }
+     }
    }
  
-+  pool.wait();
-   m_process->GetTarget().ModulesDidLoad(module_list);
-   m_initial_modules_added = true;
- }
 diff --git a/lldb/source/Plugins/DynamicLoader/POSIX-DYLD/DynamicLoaderPOSIXDYLD.h b/lldb/source/Plugins/DynamicLoader/POSIX-DYLD/DynamicLoaderPOSIXDYLD.h
 index 8d3e4cde5..0f65c217c 100644
 --- a/lldb/source/Plugins/DynamicLoader/POSIX-DYLD/DynamicLoaderPOSIXDYLD.h
@@ -7235,10 +7267,10 @@ index 000000000..6595dcf91
 +#endif // LLDB_SOURCE_PLUGINS_EXPRESSIONPARSER_CANGJIE_CANGJIECOMPILERINSTANCE_H
 diff --git a/lldb/source/Plugins/ExpressionParser/Cangjie/CangjieDeclMap.cpp b/lldb/source/Plugins/ExpressionParser/Cangjie/CangjieDeclMap.cpp
 new file mode 100644
-index 000000000..d0240f040
+index 000000000..fb79a00d5
 --- /dev/null
 +++ b/lldb/source/Plugins/ExpressionParser/Cangjie/CangjieDeclMap.cpp
-@@ -0,0 +1,2133 @@
+@@ -0,0 +1,2149 @@
 +//===-- CangjieDeclMap.cpp ------------------------------------------------===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -7609,6 +7641,19 @@ index 000000000..d0240f040
 +  return funcname;
 +}
 +
++bool CheckNestedGenericFunction(lldb_private::ConstString funcname) {
++    int count = 0;
++    size_t pos = 0;
++    auto str = funcname.GetStringRef();
++    llvm::StringRef substr = "<T";
++    while ((pos = str.find(substr, pos)) != llvm::StringRef::npos) {
++        ++count;
++        pos += substr.size();
++    }
++
++    return count > 1;
++}
++
 +std::vector<CangjieDeclMap::CompilerTypeInfo> CangjieDeclMap::LookUpFunction(std::string name, bool find_global) {
 +  std::vector<CangjieDeclMap::CompilerTypeInfo> result;
 +  auto target = m_exe_ctx.GetTargetPtr();
@@ -7645,6 +7690,9 @@ index 000000000..d0240f040
 +    sc_list.GetContextAtIndex(index, sym_ctx);
 +    if (!sym_ctx.function) {
 +      continue;
++    }
++    if (CheckNestedGenericFunction(sym_ctx.function->GetNameNoArguments())) {
++      return result;
 +    }
 +    std::string funcNameWithPkg = sym_ctx.function->GetNameNoArguments().GetCString();
 +    if (funcNameWithPkg.find(m_current_pkgname) == std::string::npos) {
@@ -8974,8 +9022,8 @@ index 000000000..d0240f040
 +  } else if (ty->IsString()) {
 +    auto type = this->FindParsedTypesByName(typeName);
 +    if (!type.IsValid()) {
-+        type = LookUptype(lldb::ModuleSP(),
-+      lldb_private::ConstString(typeName.c_str()), lldb_private::CompilerDeclContext());
++      type = LookUptype(lldb::ModuleSP(), lldb_private::ConstString(typeName.c_str()),
++                        lldb_private::CompilerDeclContext());
 +      m_parsed_types.insert({"std.core::String", type});
 +    }
 +    return type;
@@ -10102,10 +10150,10 @@ index 000000000..4d9a88c12
 +#endif // LLDB_SOURCE_PLUGINS_EXPRESSIONPARSER_CANGJIE_CANGJIEEXPRESSIONSOUECECODE_H
 diff --git a/lldb/source/Plugins/ExpressionParser/Cangjie/CangjieIRForTarget.cpp b/lldb/source/Plugins/ExpressionParser/Cangjie/CangjieIRForTarget.cpp
 new file mode 100644
-index 000000000..edd655507
+index 000000000..f72ce6424
 --- /dev/null
 +++ b/lldb/source/Plugins/ExpressionParser/Cangjie/CangjieIRForTarget.cpp
-@@ -0,0 +1,540 @@
+@@ -0,0 +1,548 @@
 +//===-- CangjieIRForTarget.cpp --------------------------------------------===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -10518,9 +10566,17 @@ index 000000000..edd655507
 +    if (env.equals("ohos")) {
 +      m_module->setTargetTriple("aarch64-unknown-linux-ohos");
 +    }
++    if (env.equals("android")) {
++      m_module->setTargetTriple("aarch64-unknown-linux-android");
++    }
 +    m_module->setDataLayout("e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128");
 +  }
-+
++  if (ostype == llvm::Triple::Linux && archtype == llvm::Triple::ArchType::x86_64) {
++    if (env.equals("ohos")) {
++      m_module->setTargetTriple("x86_64-unknown-linux-ohos");
++      m_module->setDataLayout("e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128");
++    }
++  }
 +  if (ostype == llvm::Triple::Darwin) {
 +    if (archtype == llvm::Triple::ArchType::aarch64) {
 +      m_module->setDataLayout("e-m:o-i64:64-i128:128-n32:64-S128");
@@ -11175,7 +11231,7 @@ index 80135daf4..30d06ae8f 100644
    GenericOptional.cpp
    LibCxx.cpp
 diff --git a/lldb/source/Plugins/Language/CPlusPlus/CPlusPlusLanguage.cpp b/lldb/source/Plugins/Language/CPlusPlus/CPlusPlusLanguage.cpp
-index 23ce1654f..965511111 100644
+index 23ce1654f..9c97fc731 100644
 --- a/lldb/source/Plugins/Language/CPlusPlus/CPlusPlusLanguage.cpp
 +++ b/lldb/source/Plugins/Language/CPlusPlus/CPlusPlusLanguage.cpp
 @@ -35,7 +35,9 @@
@@ -11229,7 +11285,7 @@ index 23ce1654f..965511111 100644
                                                    ConstString demangled) const {
    MethodName demangled_name(demangled);
    return demangled_name.ContainsPath(path);
-@@ -1240,6 +1244,110 @@ static void LoadSystemFormatters(lldb::TypeCategoryImplSP cpp_category_sp) {
+@@ -1240,6 +1244,116 @@ static void LoadSystemFormatters(lldb::TypeCategoryImplSP cpp_category_sp) {
        "unichar summary provider", ConstString("unichar"), widechar_flags);
  }
  
@@ -11264,6 +11320,12 @@ index 23ce1654f..965511111 100644
 +
 +  AddCXXSummary(cpp_category_sp, lldb_private::formatters::RangeSummaryProvider,
 +      "Range summary provider", ConstString("^std[.]core::Range<.+>$"), cj_flags, true);
++
++  AddCXXSummary(cpp_category_sp, lldb_private::formatters::DateTimeSummaryProvider,
++      "DateTime summary provider", ConstString("^std[.]time::DateTime$"), cj_flags, true);
++
++  AddCXXSummary(cpp_category_sp, lldb_private::formatters::DecimalSummaryProvider,
++      "Decimal summary provider", ConstString("^std[.]math.numeric::Decimal$"), cj_flags, true);
 +
 +  // Applies only to the enum type without parameters.
 +  AddCXXSummary(cpp_category_sp, lldb_private::formatters::EnumSummaryProvider,
@@ -11340,7 +11402,7 @@ index 23ce1654f..965511111 100644
  std::unique_ptr<Language::TypeScavenger> CPlusPlusLanguage::GetTypeScavenger() {
    class CPlusPlusTypeScavenger : public Language::ImageListTypeScavenger {
    public:
-@@ -1268,6 +1376,8 @@ lldb::TypeCategoryImplSP CPlusPlusLanguage::GetFormatters() {
+@@ -1268,6 +1382,8 @@ lldb::TypeCategoryImplSP CPlusPlusLanguage::GetFormatters() {
        LoadLibStdcppFormatters(g_category);
        LoadLibCxxFormatters(g_category);
        LoadSystemFormatters(g_category);
@@ -11364,10 +11426,10 @@ index 53a01cfc4..646750708 100644
  
 diff --git a/lldb/source/Plugins/Language/CPlusPlus/CjTypes.cpp b/lldb/source/Plugins/Language/CPlusPlus/CjTypes.cpp
 new file mode 100644
-index 000000000..78793e6dc
+index 000000000..7d2296864
 --- /dev/null
 +++ b/lldb/source/Plugins/Language/CPlusPlus/CjTypes.cpp
-@@ -0,0 +1,487 @@
+@@ -0,0 +1,966 @@
 +//===-- CjTypes.cpp ---------------------------------------------------------===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -11379,6 +11441,7 @@ index 000000000..78793e6dc
 +//===----------------------------------------------------------------------===//
 +
 +#include "CjTypes.h"
++#include <tuple>
 +#include "lldb/DataFormatters/StringPrinter.h"
 +#include "lldb/DataFormatters/FormattersHelpers.h"
 +#include "lldb/Target/Process.h"
@@ -11501,7 +11564,8 @@ index 000000000..78793e6dc
 +    // Need delete cpoint after CString refactor to built-in on Jet backend.
 +    cpoint = chars;
 +  }
-+
++  time_t currentTime;
++  struct tm* localTime = localtime(&currentTime);
 +  stream.Printf("%s", cpoint->GetSummaryAsCString());
 +
 +  return true;
@@ -11803,6 +11867,483 @@ index 000000000..78793e6dc
 +  return true;
 +}
 +
++
++// The layout of the type is:
++// public struct BigInt {
++//    let int: UInt64,
++//    let intArr: Array<UInt32>,
++//    let negSign: Bool
++// }
++// public struct Array<T> {
++//   let rawptr: RawArray<T>
++//   let start: Int64
++//   let len: Int64
++
++class BigInt {
++public:
++    BigInt(uint64_t intv, std::vector<uint32_t> big_intArr, int64_t len, bool negSign)
++        : m_intv(intv),
++          m_big_intArr(big_intArr),
++          m_len(len),
++          m_negsign(negSign) { }
++    std::string ToString() {
++      int64_t digits = 9;
++      uint64_t anyBase = 1000000000;
++      // Get str Arr size
++      int64_t strArrSize = (32 * (m_len + 2) / int64_t(29) + 1);
++      std::vector<uint64_t> stringArr;
++      for (size_t i = 0; i < strArrSize; i++) {
++        stringArr.emplace_back(0);
++      }
++      int64_t stringArrBound = CalculateStrArr(stringArr, m_big_intArr, m_intv, 1);
++
++      std::vector<uint8_t> stringUtf8Arr(stringArrBound * digits + 1, '0');
++      int64_t begin = ToBaseString(stringUtf8Arr, 9, stringArr[stringArrBound - 1]);
++      if (m_negsign) {
++        stringUtf8Arr[begin] = '-';
++        begin--;
++      }
++      begin++;
++      for (int64_t i = stringArrBound - 2; i >= 0; i--) {
++        ToBaseString(stringUtf8Arr, digits * (stringArrBound - i), stringArr[i]);
++      }
++      std::string result;
++      for (size_t i = begin; i < stringUtf8Arr.size(); i++) {
++        result += static_cast<char>(stringUtf8Arr[i]);
++      }
++      return result;
++    }
++
++    int64_t ToBaseString(std::vector<uint8_t>& stringUtf8Arr, int64_t index, uint64_t int1) {
++      const uint8_t DIGIT_DIFF = 0x30;
++      const uint8_t LETTER_UPPER_DIFF = 0x41 - 0x0A;
++      const uint8_t LETTER_LOWER_DIFF = 0x61 - 0x0A;
++      uint64_t base = 10;
++      int64_t i = index;
++      uint64_t quo = int1;
++      while (quo != 0) {
++          uint8_t rem = uint8_t(quo % base);
++          if (rem < 10) { // Decimal 10
++            stringUtf8Arr[i] = rem + DIGIT_DIFF;
++          } else {
++            stringUtf8Arr[i] = rem + LETTER_UPPER_DIFF;
++          }
++          quo = quo / uint64_t(base);
++          i--;
++      }
++      return i;
++    }
++
++    int64_t CalculateStrArr(std::vector<uint64_t>& stringArr, uint64_t bigInt, int64_t bound) {
++      int64_t stringArrBound = bound;
++      int64_t anyBase = 1000000000;
++      for (int64_t j = stringArrBound - 1; j >= 0; --j) {
++        stringArr[j] <<= 32; // 32-bit
++      }
++      stringArr[0] += bigInt;
++      for (size_t j = 0; j < stringArrBound - 1; j++) {
++          stringArr[j + 1] += stringArr[j] / anyBase;
++          stringArr[j] %= anyBase;
++      }
++      int64_t rem = stringArr[stringArrBound - 1] / anyBase;
++      stringArr[stringArrBound - 1] %= anyBase;
++      while (rem > 0) {
++          stringArr[stringArrBound] = rem;
++          stringArrBound++;
++          rem = stringArr[stringArrBound - 1] / anyBase;
++          stringArr[stringArrBound - 1] %= anyBase;
++      }
++      return stringArrBound;
++    }
++
++    int64_t CalculateStrArr(std::vector<uint64_t>& stringArr, std::vector<uint32_t>& bigArray,
++                            uint64_t bigInt, int64_t bound) {
++      int64_t stringArrBound = bound;
++      int64_t i = bigArray.size() - 1;
++      while (i >= 0) {
++        stringArrBound = CalculateStrArr(stringArr, uint64_t(bigArray[i]), stringArrBound);
++        i--;
++      }
++      stringArrBound = CalculateStrArr(stringArr, bigInt >> 32, stringArrBound); // 32-bit
++      return CalculateStrArr(stringArr, (bigInt & 0xFFFFFFFF), stringArrBound);
++    }
++private:
++   uint64_t m_intv;
++   std::vector<uint32_t> m_big_intArr;
++   int64_t m_len;
++   bool m_negsign;
++};
++
++std::string lldb_private::formatters::GetBigIntvalue(ValueObject &value) {
++  // The layout of the type is:
++  // public struct BigInt {
++  //    let int: UInt64,
++  //    let intArr: Array<UInt32>,
++  //    let negSign: Bool
++  // }
++  lldb::ValueObjectSP bint = value.GetChildMemberWithName(ConstString("int"), true);
++  lldb::ValueObjectSP negSign = value.GetChildMemberWithName(ConstString("negSign"), true);
++  lldb::ValueObjectSP valueIntArr = value.GetChildMemberWithName(ConstString("intArr"), true);
++  if (!bint || !negSign || !valueIntArr) {
++    return "0";
++  }
++  auto value_int = bint->GetValueAsUnsigned(UINT64_MAX);
++  auto value_negSign = negSign->GetValueAsSigned(INT64_MAX);
++  auto array_len = valueIntArr->GetChildMemberWithName(ConstString("len"), true);
++  if (!array_len) {
++    return "0";
++  }
++  auto len = array_len->GetValueAsSigned(INT64_MAX);
++  if (len == 0) {
++    std::string result = std::to_string(value_int);
++    if (value_negSign == 1) {
++      result = "-" + result;
++    }
++    return result;
++  }
++  // use intArr
++  // public struct Array<T> {
++  //   let rawptr: RawArray<T>
++  //   let start: Int64
++  //   let len: Int64
++  auto rawptr = valueIntArr->GetChildMemberWithName(ConstString("rawptr"), true);
++  auto m_start = valueIntArr->GetChildMemberWithName(ConstString("start"), true);
++  if (!rawptr || !m_start) {
++    return "0";
++  }
++  auto start = m_start->GetValueAsSigned(INT64_MAX);
++
++  auto m_elements = rawptr->GetChildMemberWithName(ConstString("elements"), true);
++  CompilerType element_type = m_elements->GetCompilerType();
++  llvm::Optional<uint64_t> size = element_type.GetByteSize(nullptr);
++  uint64_t element_size = 4; // UInt32's size is 4.
++
++  std::vector<uint32_t> big_intArr;
++  for (size_t idx = 0; idx < len; idx++) {
++    addr_t addr = m_elements->GetAddressOf() + (m_start->GetValueAsUnsigned(0) + idx) * element_size;
++    ValueObjectSP valobj_sp(
++      ValueObject::CreateValueObjectFromAddress("tmp", addr, m_elements->GetExecutionContextRef(), element_type));
++
++    if (valobj_sp)
++      valobj_sp->SetSyntheticChildrenGenerated(true);
++
++    if (valobj_sp->IsPointerType()) {
++      Status error;
++      valobj_sp = valobj_sp->Dereference(error);
++      valobj_sp->SetName(ConstString(valobj_sp->GetName().GetStringRef().ltrim('*').str()));
++    }
++    auto tmpU32 = valobj_sp->GetValueAsUnsigned(UINT32_MAX);
++    big_intArr.emplace_back(tmpU32);
++  }
++  auto bigint = BigInt(value_int, big_intArr, len, value_negSign);
++  return bigint.ToString();
++}
++
++// The layout of the type is:
++// public struct Decimal {
++//    var _scale: Int32
++//    var _precision: Int64
++//    var _value: BigInt
++//    var _sign: Int64
++// }
++class DecimalToString {
++public:
++    DecimalToString(int32_t scale, int64_t precision, std::string bigInt, int64_t sign)
++        : _scale(scale), _precision(precision), _bigInt(bigInt), _sign(sign) {}
++  std::string ToString() {
++    if (_scale < 0) {
++      if (_sign == 0) {
++        return "0";
++      }
++      std::string decimalStrArr(_bigInt.length() - _scale, '0');
++      decimalStrArr = _bigInt + decimalStrArr;
++      return decimalStrArr;
++    }
++    std::string unscaleValStrArr = _bigInt;
++    // scale value bigger than 0, need insert decimal point to corresponding position.
++    // precision is bigger than 0 and scale range [0, Int32.Max]
++    auto decimalPointIndex = _precision - _scale;
++    std::string decimalStrArr(unscaleValStrArr);
++    if (decimalPointIndex == 0) {
++      if (unscaleValStrArr.at(0) == '-') {
++        decimalStrArr.insert(0, 1, '-');
++        decimalStrArr.insert(2, 1, '.'); // position is 2
++      } else {
++        decimalStrArr.insert(0, 1, '0');
++        decimalStrArr.insert(1, 1, '.');
++      }
++    } else if (decimalPointIndex > 0) {
++      if (unscaleValStrArr[0] == '-') {
++        decimalStrArr.insert(decimalPointIndex + 1, 1, '.');
++      } else {
++        decimalStrArr.insert(decimalPointIndex, 1, '.');
++      }
++    } else {
++      // decimalPointIndex less than 0, decimal point in the left of bigint value.
++      // when decimalPointIndex less than 0, it's range [-Int32.Max, 0], abs will nerver overflow.
++      std::string temp(unscaleValStrArr.size() + abs(decimalPointIndex) + 2, '0');
++      decimalStrArr = temp;
++      if (unscaleValStrArr[0] == '-') {
++        decimalStrArr[0] = '-';
++        decimalStrArr[2] = '.'; // Index 2.
++        for (int64_t i = 1; i < unscaleValStrArr.size(); i++) {
++          decimalStrArr[abs(decimalPointIndex) + 3 + i] = unscaleValStrArr[i]; // Offset 3.
++        }
++      } else {
++        decimalStrArr[1] = '.';
++        for (int64_t i = 0; i < unscaleValStrArr.size(); i++) {
++          decimalStrArr[abs(decimalPointIndex) + 2 + i] = unscaleValStrArr[i]; // Offset 2.
++        }
++      }
++    }
++    return decimalStrArr;
++  }
++
++private:
++  int32_t _scale;
++  int64_t _precision;
++  std::string _bigInt;
++  int64_t _sign;
++};
++
++bool lldb_private::formatters::DecimalSummaryProvider(ValueObject &valobj, Stream &stream,
++                                                      const TypeSummaryOptions &options)
++{
++  // The layout of the type is:
++  // public struct Decimal {
++  //    var _scale: Int32
++  //    var _precision: Int64
++  //    var _value: BigInt
++  //    var _sign: Int64
++  // }
++  lldb::ValueObjectSP raw = valobj.GetNonSyntheticValue();
++  if (!raw) {
++    return false;
++  }
++  lldb::ValueObjectSP scale = raw->GetChildMemberWithName(ConstString("_scale"), true);
++  lldb::ValueObjectSP precision = raw->GetChildMemberWithName(ConstString("_precision"), true);
++  lldb::ValueObjectSP value = raw->GetChildMemberWithName(ConstString("_value"), true);
++  lldb::ValueObjectSP sign = raw->GetChildMemberWithName(ConstString("_sign"), true);
++  if (!scale || !precision || !value || !sign) {
++    return false;
++  }
++  auto dscale = scale->GetValueAsSigned(INT64_MAX);
++  std::string unscaleValStrArr = GetBigIntvalue(*value.get());
++  if (dscale == 0) {
++    stream.Printf("%s", unscaleValStrArr.c_str());
++    return true;
++  }
++  auto dsign = sign->GetValueAsSigned(INT64_MAX);
++  auto dprecision = precision->GetValueAsSigned(INT64_MAX);
++  std::string tmp = DecimalToString(dscale, dprecision, unscaleValStrArr, dsign).ToString();
++  stream.Printf("%s", tmp.c_str());
++  return true;
++}
++
++class CangjieDateTime {
++public:
++    CangjieDateTime(int64_t epoch, int64_t offset): epoch(epoch), offset(offset) {}
++  enum class MONTH {
++    Invaild = 0,
++    January = 1,
++    February,
++    March,
++    April,
++    May,
++    June,
++    July,
++    August,
++    September,
++    October,
++    November,
++    December
++  };
++  int64_t epoch;
++  int64_t offset;
++  int64_t START_AD_YEAR = 1;
++  int64_t MIN_YEAR = -999999999;
++  int64_t MAX_YEAR = 999999999;
++  int64_t SECS_PER_DAY = 86400;
++  int64_t DAYS_PER_400YEARS = 146097;
++  int64_t DAYS_PER_100YEARS = 36524;
++  int64_t DAYS_PER_4YEARS = 1461;
++  int64_t DAYS_OF_NORMAL_YEAR = 365;
++  int64_t SECS_PER_HOUR = 3600;
++  int64_t SECS_PER_MINUTE = 60;
++  int64_t MAX_DAY_AD1 = (MAX_YEAR - 1) * 365 + (MAX_YEAR - 1) / 4 - (MAX_YEAR - 1) / 100 + (MAX_YEAR - 1) / 400 + 365;
++  int64_t MIN_DAY_AD1 = -(MAX_DAY_AD1 + 366);
++  int64_t SECS_OF_MIN_TO_AD1 = MIN_DAY_AD1 * SECS_PER_DAY;
++  std::vector<int64_t>  DAYS_BEFORE = {
++      0,
++      31, // January, 31 days
++      59, // until February, 31 + 28, 59 days
++      90, // 90 days
++      120, // 120 days
++      151, // 151 days
++      181, // 181 days
++      212, // 212 days
++      243, // 243 days
++      273, // 273 days
++      304, // 304 days
++      334, // 334 days
++      365  // 365 days
++  };
++  int64_t Year() {
++    return std::get<0>(GetYearAndSecond());
++  }
++  MONTH Month() {
++    return std::get<0>(GetMonthAndDay());
++  }
++  int64_t DayOfMonth() {
++    return std::get<1>(GetMonthAndDay());
++  }
++  int64_t Hour() {
++    int64_t second = std::get<1>(this->GetYearAndSecond());
++    return (second % this->SECS_PER_DAY) / this->SECS_PER_HOUR;
++  }
++  int64_t Minute() {
++    int64_t second = std::get<1>(this->GetYearAndSecond());
++    return (second % this->SECS_PER_HOUR) / this->SECS_PER_MINUTE;
++  }
++  int64_t Second() {
++    int64_t second = std::get<1>(this->GetYearAndSecond());
++    return second % this->SECS_PER_MINUTE;
++  }
++private:
++  static MONTH MonthOf(int64_t mon) {
++    std::vector<MONTH> months = {
++        MONTH::Invaild, MONTH::January, MONTH::February, MONTH::March, MONTH::April, MONTH::May, MONTH::June,
++        MONTH::July, MONTH::August, MONTH::September, MONTH::October, MONTH::November, MONTH::December
++    };
++    if (mon >= 1 && mon <= 12) { // month 12
++      return months[mon];
++    }
++    return MONTH::Invaild;
++  }
++  std::tuple<MONTH, int64_t> GetMonthAndDay() {
++    auto year_second = this->GetYearAndSecond();
++    return this->GetDate(std::get<0>(year_second), std::get<1>(year_second));
++  }
++  bool IsLeapYear(int64_t year) {
++    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0); // 4 year, 100 year, 400 year
++  }
++  std::tuple<MONTH, int64_t> GetDate(int64_t year, int64_t sec) {
++    int64_t days = int64_t(sec) / SECS_PER_DAY;
++    if (IsLeapYear(year)) {
++        if (days == DAYS_BEFORE[2]) { // Month 2
++            return {MONTH::February, 29}; // Month 2 has 29 days.
++        }
++        if (days > DAYS_BEFORE[2]) { // Month 2
++            days -= 1;
++        }
++    }
++    int64_t idx = 0;
++    int64_t day = 0;
++    while (idx < DAYS_BEFORE.size()) {
++        /* 1. In this case, the corresponding date is the 1st of the month idx + 1. */
++        if (days == DAYS_BEFORE[idx]) {
++            idx++;
++            day = 1;
++            break;
++        }
++        /* 2. In this case, the corresponding date is month idx. */
++        if (days < DAYS_BEFORE[idx]) {
++            day = days - DAYS_BEFORE[idx - 1] + 1;
++            break;
++        }
++        idx++;
++    }
++    MONTH month = MonthOf(idx);
++    return {month, day};
++  }
++  std::tuple<int64_t, int64_t> GetYearAndSecond() {
++    auto [year, sec] = this->ToYearAndSecond(this->epoch + this->GetOffset());
++    return {year, int64_t(sec)};
++  }
++
++  /**
++  * Calculate year and second in year through seconds since year 1 A.D.
++  */
++  std::tuple<int64_t, int64_t> ToYearAndSecond(int64_t sec) {
++      int64_t year = START_AD_YEAR;
++      int64_t seconds = sec;
++      if (seconds < 0) {
++          seconds -= SECS_OF_MIN_TO_AD1;
++          year = MIN_YEAR;
++      }
++      int64_t days = seconds / SECS_PER_DAY;
++      int64_t restSec = seconds % SECS_PER_DAY;
++
++      int64_t times = days / DAYS_PER_400YEARS;
++      year += 400 * times; // 400 years
++      days %= DAYS_PER_400YEARS;
++
++      times = days / DAYS_PER_100YEARS;
++      times -= times >> 2; // 2
++      year += 100 * times; // 100 year
++      days -= DAYS_PER_100YEARS * times;
++
++      times = days / DAYS_PER_4YEARS;
++      year += 4 * times; // 4 year
++      days %= DAYS_PER_4YEARS;
++
++      times = days / DAYS_OF_NORMAL_YEAR;
++      times -= times >> 2; // 2
++      year += times;
++      days -= DAYS_OF_NORMAL_YEAR * times;
++
++      int64_t secInYear = restSec + days * SECS_PER_DAY;
++      return {year, secInYear};
++  }
++  int64_t GetOffset() {
++    return this->offset;
++  }
++};
++
++bool lldb_private::formatters::DateTimeSummaryProvider(
++    ValueObject &valobj, Stream &stream, const TypeSummaryOptions &options)
++{
++  // The layout of the type is:
++  // public struct DateTime {
++  //   let d: Duration
++  //   let tz: TimeZone
++  //  }
++  lldb::ValueObjectSP raw = valobj.GetNonSyntheticValue();
++  if (!raw) {
++    return false;
++  }
++  lldb::ValueObjectSP duration = raw->GetChildMemberWithName(ConstString("d"), true);
++  if (!duration) {
++    return false;
++  }
++  lldb::ValueObjectSP sec = duration->GetChildMemberWithName(ConstString("sec"), true);
++  if (!sec) {
++    return false;
++  }
++  int64_t secVal = sec->GetValueAsSigned(INT64_MAX);
++  lldb::ValueObjectSP timeZone = raw->GetChildMemberWithName(ConstString("tz"), true);
++  if (!timeZone) {
++    return false;
++  }
++  lldb::ValueObjectSP zoneId = timeZone->GetChildMemberWithName(ConstString("zoneId"), true);
++  if (!zoneId) {
++    return false;
++  }
++  auto str_zoneId = zoneId->GetSummaryAsCString();
++  CangjieDateTime date = CangjieDateTime(secVal, 0);
++  if (date.Year() > 999 || date.Year() < -999) { // 999, -999 year
++    stream.Printf("%d-%02d-%02dT%02d:%02d:%02dZ", date.Year(),
++                  date.Month(), date.DayOfMonth(), date.Hour(), date.Minute(), date.Second());
++  } else if (date.Year() < 0) {
++    stream.Printf("%05d-%02d-%02dT%02d:%02d:%02dZ", date.Year(),
++                  date.Month(), date.DayOfMonth(), date.Hour(), date.Minute(), date.Second());
++  } else {
++    stream.Printf("%04d-%02d-%02dT%02d:%02d:%02dZ", date.Year(),
++                  date.Month(), date.DayOfMonth(), date.Hour(), date.Minute(), date.Second());
++  }
++  return true;
++}
++
 +bool lldb_private::formatters::Enum2SummaryProvider(
 +    ValueObject &valobj, Stream &stream, const TypeSummaryOptions &) {
 +  if (valobj.IsPointerType()) {
@@ -11857,10 +12398,10 @@ index 000000000..78793e6dc
 +}
 diff --git a/lldb/source/Plugins/Language/CPlusPlus/CjTypes.h b/lldb/source/Plugins/Language/CPlusPlus/CjTypes.h
 new file mode 100644
-index 000000000..b2601d781
+index 000000000..86fb31227
 --- /dev/null
 +++ b/lldb/source/Plugins/Language/CPlusPlus/CjTypes.h
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,39 @@
 +//===-- CjTypes.h ---------------------------------------------------------===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -11893,16 +12434,19 @@ index 000000000..b2601d781
 +bool FunctionSummaryProvider(ValueObject &valobj, Stream &stream, const TypeSummaryOptions &options);
 +bool EnumSummaryProvider(ValueObject &valobj, Stream &stream, const TypeSummaryOptions &options);
 +bool Enum2SummaryProvider(ValueObject &valobj, Stream &stream, const TypeSummaryOptions &options);
++bool DateTimeSummaryProvider(ValueObject &valobj, Stream &stream, const TypeSummaryOptions &options);
++std::string GetBigIntvalue(ValueObject &valobj);
++bool DecimalSummaryProvider(ValueObject &valobj, Stream &stream, const TypeSummaryOptions &options);
 +} // namespace formatters
 +} // namespace lldb_private
 +
 +#endif // liblldb_CjTypes_h_
 diff --git a/lldb/source/Plugins/Language/CPlusPlus/LibCj.cpp b/lldb/source/Plugins/Language/CPlusPlus/LibCj.cpp
 new file mode 100644
-index 000000000..f4df84158
+index 000000000..3e1b632fb
 --- /dev/null
 +++ b/lldb/source/Plugins/Language/CPlusPlus/LibCj.cpp
-@@ -0,0 +1,767 @@
+@@ -0,0 +1,833 @@
 +//===-- LibCj.cpp ---------------------------------------------------------===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -11966,7 +12510,9 @@ index 000000000..f4df84158
 +  bool MightHaveChildren() override { return true; }
 +  size_t GetIndexOfChildWithName(ConstString name) override { return ExtractIndexFromString(name.GetCString()); }
 +  void SetIsInternalType(bool internal) { m_internal = internal; }
-+
++  std::string GetChildName(ValueObjectSP value);
++  llvm::StringRef GetBasicTypeName(ValueObjectSP value);
++  bool IsBasicType(ValueObjectSP value);
 +private:
 +  int64_t m_freeOffset = 0;
 +  ValueObjectSP m_appendIndex;
@@ -12521,6 +13067,65 @@ index 000000000..f4df84158
 +  Update();
 +}
 +
++bool CjHashMapSyntheticFrontEnd::IsBasicType(ValueObjectSP value) {
++  auto type = value->GetCompilerType();
++  if (type.GetTypeClass() == lldb::eTypeClassTypedef) {
++    type = type.GetTypedefedType();
++  }
++  if (type.GetTypeClass() == lldb::eTypeClassBuiltin) {
++    return true;
++  }
++  if (type.GetTypeClass() == lldb::eTypeClassStruct) {
++    auto typeName = type.GetTypeName().GetStringRef();
++    if (typeName.find("std.core::String") == 0) {
++      return true;
++    }
++    if (typeName.find("std.math.numeric::Decimal") == 0) {
++      return true;
++    }
++    if (typeName.find("std.time::DateTime") == 0) {
++      return true;
++    }
++  }
++  return false;
++}
++
++llvm::StringRef CjHashMapSyntheticFrontEnd::GetBasicTypeName(ValueObjectSP value) {
++  auto type = value->GetCompilerType();
++  auto typeName = type.GetTypeName().GetStringRef();
++  if (typeName == "Rune" || typeName == "Int8" || typeName == "UInt8") {
++    return value->GetSummaryAsCString();
++  }
++  if (type.GetTypeClass() == lldb::eTypeClassStruct) {
++    // String
++    return value->GetSummaryAsCString();
++  }
++  // integer, float, bool
++  return value->GetValueAsCString();
++}
++
++std::string CjHashMapSyntheticFrontEnd::GetChildName(ValueObjectSP value) {
++  // HashMap is internal type means a child of cangjie HashSet
++  // then we only need one child of value(the type of value is class)
++  // and this child idx is 2(key), child idx is 3(value).
++  ValueObjectSP child_key_sp = value->GetChildAtIndex(2, true);
++  ValueObjectSP child_val_sp = value->GetChildAtIndex(3, true);
++  if (!child_key_sp || !child_val_sp) {
++    return "";
++  }
++  if (!IsBasicType(child_key_sp)) {
++    return "";
++  }
++  llvm::StringRef key_str = GetBasicTypeName(child_key_sp);
++  if (!IsBasicType(child_val_sp)) {
++    std::string name = "[" + key_str.str() +"]";
++    return name;
++  }
++  llvm::StringRef val_str = GetBasicTypeName(child_val_sp);
++  std::string name = "[" + key_str.str() + " -> "+ val_str.str() + "]";
++  return name;
++}
++
 +size_t CjHashMapSyntheticFrontEnd::CalculateNumChildren() {
 +  if (!m_appendIndex || !m_freeSize) {
 +    return 0;
@@ -12563,8 +13168,13 @@ index 000000000..f4df84158
 +
 +    // Mark the value(class type) is a child of HashMap.
 +    value->SetIsInternalType(true);
-+    std::string name = llvm::formatv("[{0}]", idx).str();
-+    value->SetName(ConstString(name.c_str()));
++    // idx =>  Bob -> 123 for metaDsl.
++    if (value->IsInternalType()) {
++      auto name = GetChildName(value);
++      if (!name.empty()) {
++        value->SetName(ConstString(name));
++      }
++    }
 +    return value;
 +  }
 +
@@ -16379,7 +16989,7 @@ index 14663e4b7..6675796b8 100644
      } while (frame_sp);
    }
 diff --git a/lldb/source/Target/Target.cpp b/lldb/source/Target/Target.cpp
-index f16fc6b5d..c5d73641a 100644
+index f16fc6b5d..52abd534e 100644
 --- a/lldb/source/Target/Target.cpp
 +++ b/lldb/source/Target/Target.cpp
 @@ -60,12 +60,15 @@
@@ -16587,34 +17197,7 @@ index f16fc6b5d..c5d73641a 100644
    }
  
    if (execution_results == eExpressionCompleted)
-@@ -4737,3 +4898,27 @@ std::recursive_mutex &Target::GetAPIMutex() {
- 
- /// Get metrics associated with this target in JSON format.
- llvm::json::Value Target::ReportStatistics() { return m_stats.ToJSON(*this); }
-+
-+std::vector<std::shared_ptr<lldb_private::Target::CJThread>> Target::GetAllCJThreadStatus(
-+  lldb_private::ExecutionContext &exe_ctx) {
-+  CommandObjCJThreadCommon cjthread_help;
-+  Status error;
-+  std::vector<std::shared_ptr<struct CJThread>> cjthreads;
-+  auto count = cjthread_help.GetCJThreadCount(exe_ctx, error);
-+  auto info = cjthread_help.GetCJThreadInfo(exe_ctx, error);
-+  std::lock_guard<std::recursive_mutex> guard(
-+    exe_ctx.GetProcessPtr()->GetThreadList().GetMutex());
-+  for (uint64_t i = 0; i < count; i++) {
-+     auto cjthread_context = info->GetChildAtIndex(i, true);
-+    cjthread_help.HandOneCJThread(exe_ctx.GetThreadSP(), cjthread_context, error, true);
-+    auto frames = cjthread_help.m_frames;
-+    StreamString strm;
-+    auto name = cjthread_help.GetCJThreadName(cjthread_context);
-+    auto id = cjthread_help.GetCJThreadID(cjthread_context);
-+    auto state = cjthread_help.GetCJThreadState(cjthread_context);
-+    auto cjthread = std::make_shared<struct CJThread>(frames, id, name, state);
-+    cjthreads.push_back(cjthread);
-+  }
-+
-+  return cjthreads;
-+}
+
 diff --git a/lldb/source/Target/TargetList.cpp b/lldb/source/Target/TargetList.cpp
 index 829036976..a4d9b372b 100644
 --- a/lldb/source/Target/TargetList.cpp
@@ -20178,7 +20761,7 @@ index 4ff48c366..fd01aa3bd 100644
  class AssumeInst : public IntrinsicInst {
  public:
 diff --git a/llvm/include/llvm/IR/Intrinsics.td b/llvm/include/llvm/IR/Intrinsics.td
-index d46fa4fbf..ac58925bd 100644
+index d46fa4fbf..6a5019003 100644
 --- a/llvm/include/llvm/IR/Intrinsics.td
 +++ b/llvm/include/llvm/IR/Intrinsics.td
 @@ -180,6 +180,9 @@ class LLVMQualPointerType<LLVMType elty, int addrspace>
@@ -20250,7 +20833,7 @@ index d46fa4fbf..ac58925bd 100644
  
  def llvm_x86mmx_ty     : LLVMType<x86mmx>;
  def llvm_ptrx86mmx_ty  : LLVMPointerType<llvm_x86mmx_ty>;         // <1 x i64>*
-@@ -417,6 +432,191 @@ def int_gcwrite : Intrinsic<[],
+@@ -417,6 +432,198 @@ def int_gcwrite : Intrinsic<[],
                              [IntrArgMemOnly, NoCapture<ArgIndex<1>>,
                               NoCapture<ArgIndex<2>>]>;
  
@@ -20294,6 +20877,12 @@ index d46fa4fbf..ac58925bd 100644
 +                                                [llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_i64_ty]>;
 +def int_cj_copy_struct_field        : Intrinsic<[],
 +                                                [llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_i64_ty]>;
++def int_cj_cross_access_barrier    : Intrinsic<[], [llvm_i64_ty]>;
++def int_cj_get_exported_ref        : Intrinsic<[llvm_gcptr_ty],
++                                                [llvm_i64_ty]>;
++def int_cj_remove_exported_ref     : Intrinsic<[], [llvm_i64_ty]>;
++def int_cj_create_export_handle         : Intrinsic<[llvm_i64_ty],
++                                                [llvm_gcptr_ty]>;
 +
 +//===------------------- Cangjie runtime Intrinsics ------------------------===//
 +//
@@ -20385,6 +20974,7 @@ index d46fa4fbf..ac58925bd 100644
 +def int_cj_get_fp_state         : Intrinsic<[llvm_i64_ty], [llvm_anyint_ty]>;
 +def int_cj_reset_fp_state       : Intrinsic<[], []>;
 +def int_cj_set_location         : Intrinsic<[], []>;
++def int_cj_blackhole           : Intrinsic<[llvm_ptr_ty], [llvm_ptr_ty]>;
 +
 +//===------------------- Cangjie generic Intrinsics ------------------------===//
 +//
@@ -20442,7 +21032,7 @@ index d46fa4fbf..ac58925bd 100644
  //===------------------- ObjC ARC runtime Intrinsics --------------------===//
  //
  // Note these are to support the Objective-C ARC optimizer which wants to
-@@ -1257,6 +1457,25 @@ def int_experimental_gc_get_pointer_offset : Intrinsic<[llvm_i64_ty],
+@@ -1257,6 +1464,25 @@ def int_experimental_gc_get_pointer_offset : Intrinsic<[llvm_i64_ty],
                   [llvm_anyptr_ty], [IntrNoMem, IntrWillReturn,
                   ReadNone<ArgIndex<0>>, NoCapture<ArgIndex<0>>]>;
  
@@ -20993,7 +21583,7 @@ index ebc9b95d6..61d9801a3 100644
  
    // Swift5 Reflection Data Sections
 diff --git a/llvm/include/llvm/MC/SectionKind.h b/llvm/include/llvm/MC/SectionKind.h
-index 61e400fe9..3a328ba13 100644
+index 61e400fe9..e3dbb6f1d 100644
 --- a/llvm/include/llvm/MC/SectionKind.h
 +++ b/llvm/include/llvm/MC/SectionKind.h
 @@ -116,9 +116,42 @@ class SectionKind {
@@ -21040,7 +21630,25 @@ index 61e400fe9..3a328ba13 100644
  
    bool isMetadata() const { return K == Metadata; }
  
-@@ -211,6 +244,22 @@ public:
+@@ -163,7 +196,8 @@ public:
+   bool isThreadBSSLocal() const { return K == ThreadBSSLocal; }
+ 
+   bool isGlobalWriteableData() const {
+-    return isBSS() || isCommon() || isData() || isReadOnlyWithRel();
++    return isBSS() || isCommon() || isData() || isReadOnlyWithRel() ||
++           isCJData();
+   }
+ 
+   bool isBSS() const { return K == BSS || K == BSSLocal || K == BSSExtern; }
+@@ -173,6 +207,7 @@ public:
+   bool isCommon() const { return K == Common; }
+ 
+   bool isData() const { return K == Data; }
++  bool isCJData() const { return K > CJMetadataInfo && K <= CJGCTib; }
+ 
+   bool isReadOnlyWithRel() const {
+     return K == ReadOnlyWithRel;
+@@ -211,6 +246,22 @@ public:
    static SectionKind getBSSExtern() { return get(BSSExtern); }
    static SectionKind getCommon() { return get(Common); }
    static SectionKind getData() { return get(Data); }
@@ -24149,7 +24757,7 @@ index a51e97400..53e928443 100644
  
    if (!FoundStartPHI || !FoundReduxOp || !ExitInstruction)
 diff --git a/llvm/lib/Analysis/InlineCost.cpp b/llvm/lib/Analysis/InlineCost.cpp
-index 8192ed56c..fffb99910 100644
+index 8192ed56c..f2f7050a4 100644
 --- a/llvm/lib/Analysis/InlineCost.cpp
 +++ b/llvm/lib/Analysis/InlineCost.cpp
 @@ -34,6 +34,7 @@
@@ -24320,10 +24928,10 @@ index 8192ed56c..fffb99910 100644
 +            const auto &FuncName = Func->getName();
 +            // TODO Currently, only the following implicit exceptions are
 +            // considered
-+            if ((FuncName.contains("IndexOutOfBoundsException") ||
-+                 FuncName.contains("NegativeArraySizeException") ||
-+                 FuncName.contains("OverflowException")) &&
-+                ExecptionBB.insert(FuncName)) {
++            if (FuncName.contains("IndexOutOfBoundsException") ||
++                FuncName.contains("NegativeArraySizeException") ||
++                FuncName.contains("OverflowException")) {
++              if (!ExecptionBB.insert(FuncName)) break;
 +              BBWorklist.insert(TI->getSuccessor(TIdx));
 +              break;
 +            }
@@ -24423,7 +25031,7 @@ index 20a905e04..6f4257364 100644
        if (!F->isDeclaration())
          Callback(*F);
 diff --git a/llvm/lib/Analysis/Loads.cpp b/llvm/lib/Analysis/Loads.cpp
-index 938d950e6..462ac71ed 100644
+index 938d950e6..a3b0ae5e7 100644
 --- a/llvm/lib/Analysis/Loads.cpp
 +++ b/llvm/lib/Analysis/Loads.cpp
 @@ -20,12 +20,20 @@
@@ -24447,20 +25055,32 @@ index 938d950e6..462ac71ed 100644
  static bool isAligned(const Value *Base, const APInt &Offset, Align Alignment,
                        const DataLayout &DL) {
    Align BA = Base->getPointerAlignment(DL);
-@@ -34,6 +42,138 @@ static bool isAligned(const Value *Base, const APInt &Offset, Align Alignment,
+@@ -34,6 +42,151 @@ static bool isAligned(const Value *Base, const APInt &Offset, Align Alignment,
    return BA >= Alignment && !(Offset & (APAlign - 1));
  }
  
 +static void getUses(Value *Base, SetVector<Value *> &Uses,
 +                    Value *StopInst = nullptr) {
-+  SmallVector<Value *, 8> WorkList = {Base};
++  SmallVector<std::pair<Value *, bool>, 8> WorkList = {{Base, false}};
++  auto IsLoad = [](Value *V) {
++    if (isa<LoadInst>(V))
++      return true;
++    auto *II = dyn_cast<IntrinsicInst>(V);
++    if (!II)
++      return false;
++    auto IID = II->getIntrinsicID();
++    return IID == Intrinsic::cj_gcread_ref ||
++           IID == Intrinsic::cj_gcread_static_ref;
++  };
 +  while (!WorkList.empty()) {
-+    Value *V = WorkList.pop_back_val();
++    auto [V, L] = WorkList.pop_back_val();
 +    for (auto *U : V->users()) {
-+      if (Uses.contains(U) || U == StopInst)
++      bool Tag = IsLoad(U);
++      // load after load, then stop.
++      if ((L && Tag) || Uses.contains(U) || U == StopInst)
 +        continue;
 +      Uses.insert(U);
-+      WorkList.push_back(U);
++      WorkList.push_back({U, Tag | L});
 +    }
 +  }
 +}
@@ -24512,7 +25132,7 @@ index 938d950e6..462ac71ed 100644
 +  return false;
 +}
 +
-+static bool isNoNullArgumentOrLoad(const Value *V) {
++static bool isNoNullArgumentOrLoad(const Value *V, const DominatorTree *DT) {
 +  Value *BP = const_cast<Value *>(V);
 +  if (checkMaybeLoadFromNullST(const_cast<Value *>(V), BP))
 +    return false;
@@ -24539,30 +25159,31 @@ index 938d950e6..462ac71ed 100644
 +        return false;
 +    }
 +    if (auto *SI = dyn_cast<StoreInst>(U);
-+        SI && getUnderlyingObject(SI->getPointerOperand()) != BP)
++        SI && getUnderlyingObject(SI->getPointerOperand()) != BP &&
++        !DT->dominates(V, SI))
 +      return false;
 +    if (auto *MI = dyn_cast<MemTransferInst>(U);
-+        MI && getUnderlyingObject(MI->getDest()) != BP)
++        MI && getUnderlyingObject(MI->getDest()) != BP && !DT->dominates(V, MI))
 +      return false;
 +  }
 +  return true;
 +}
 +
-+static bool isNoNullPointer(const Value *V) {
++static bool isNoNullPointer(const Value *V, const DominatorTree *DT) {
 +  assert(isa<PointerType>(V->getType()) && "It should be pointer type");
 +  if (auto *I = dyn_cast<Instruction>(V);
 +      I && I->hasMetadata(LLVMContext::MD_untrusted_ref))
 +    return false;
 +  if (auto *II = dyn_cast<IntrinsicInst>(V)) {
 +    if (II->isCJRefGCRead())
-+      return isNoNullArgumentOrLoad(V);
++      return isNoNullArgumentOrLoad(V, DT);
 +  } else if (auto *CI = dyn_cast<CallInst>(V)) {
 +    auto *F = CI->getCalledFunction();
 +    return F && F->hasFnAttribute("cj-heapmalloc");
 +  } else if (isa<AllocaInst>(V)) {
 +    return true;
 +  } else if (isa<Argument>(V) || isa<LoadInst>(V)) {
-+    return isNoNullArgumentOrLoad(V);
++    return isNoNullArgumentOrLoad(V, DT);
 +  }
 +  return false;
 +}
@@ -24578,7 +25199,7 @@ index 938d950e6..462ac71ed 100644
 +    // If Base is a normal instruction, check whether the type of Base is in
 +    // stack or Base is cangjie malloc. In the case of Base dominates CtxI, V
 +    // can safely dereference at CtxI.
-+    return DT->dominates(Base, CtxI) && isNoNullPointer(Base);
++    return DT->dominates(Base, CtxI) && isNoNullPointer(Base, DT);
 +  }
 +  return false;
 +}
@@ -24586,7 +25207,7 @@ index 938d950e6..462ac71ed 100644
  /// Test if V is always a pointer to allocated and suitably aligned memory for
  /// a simple load or store.
  static bool isDereferenceableAndAlignedPointer(
-@@ -43,6 +183,9 @@ static bool isDereferenceableAndAlignedPointer(
+@@ -43,6 +196,9 @@ static bool isDereferenceableAndAlignedPointer(
      unsigned MaxDepth) {
    assert(V->getType()->isPointerTy() && "Base must be pointer");
  
@@ -33995,10 +34616,10 @@ index e9ef034c4..00225982c 100644
  void llvm::linkAllBuiltinGCs() {}
 diff --git a/llvm/lib/IR/CJIntrinsics.cpp b/llvm/lib/IR/CJIntrinsics.cpp
 new file mode 100644
-index 000000000..29b72784b
+index 000000000..be12ae6d3
 --- /dev/null
 +++ b/llvm/lib/IR/CJIntrinsics.cpp
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,158 @@
 +//===- CJIntrinsics.cpp - Cangjie Intrinsic Wrappers ------------*- C++ -*-===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -34087,6 +34708,10 @@ index 000000000..29b72784b
 +    return CI->getArgOperand(GCReadGeneric::DstPtr);
 +  case Intrinsic::cj_assign_generic:
 +    return CI->getArgOperand(AssignGeneric::DstPtr);
++  case Intrinsic::cj_array_copy_ref:
++  case Intrinsic::cj_array_copy_struct:
++  case Intrinsic::cj_array_copy_generic:
++    return CI->getArgOperand(ArrayCopy::DstPtr);
 +  }
 +}
 +
@@ -34109,6 +34734,10 @@ index 000000000..29b72784b
 +    return CI->getArgOperand(GCReadGeneric::SrcPtr);
 +  case Intrinsic::cj_assign_generic:
 +    return CI->getArgOperand(AssignGeneric::SrcPtr);
++  case Intrinsic::cj_array_copy_ref:
++  case Intrinsic::cj_array_copy_struct:
++  case Intrinsic::cj_array_copy_generic:
++    return CI->getArgOperand(ArrayCopy::SrcPtr);
 +  }
 +}
 +
@@ -34129,6 +34758,10 @@ index 000000000..29b72784b
 +    return CI->getArgOperand(GCWriteGeneric::Size);
 +  case Intrinsic::cj_gcread_generic:
 +    return CI->getArgOperand(GCReadGeneric::Size);
++  case Intrinsic::cj_array_copy_ref:
++  case Intrinsic::cj_array_copy_struct:
++  case Intrinsic::cj_array_copy_generic:
++    return CI->getArgOperand(ArrayCopy::Size);
 +  }
 +}
 +Value *getAtomicOrder(const CallBase *CI) {
@@ -38719,7 +39352,7 @@ index f59860a24..62de8bad7 100644
    /// the function.
    void emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
 diff --git a/llvm/lib/Target/AArch64/AArch64ISelLowering.cpp b/llvm/lib/Target/AArch64/AArch64ISelLowering.cpp
-index 06e21f90e..908453ae5 100644
+index 06e21f90e..fafcd5c65 100644
 --- a/llvm/lib/Target/AArch64/AArch64ISelLowering.cpp
 +++ b/llvm/lib/Target/AArch64/AArch64ISelLowering.cpp
 @@ -706,6 +706,8 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
@@ -38769,7 +39402,15 @@ index 06e21f90e..908453ae5 100644
    case ISD::FLT_ROUNDS_:
      return LowerFLT_ROUNDS_(Op, DAG);
    case ISD::SET_ROUNDING:
-@@ -5746,8 +5772,10 @@ CCAssignFn *AArch64TargetLowering::CCAssignFnForCall(CallingConv::ID CC,
+@@ -5719,6 +5745,7 @@ CCAssignFn *AArch64TargetLowering::CCAssignFnForCall(CallingConv::ID CC,
+     return CC_AArch64_WebKit_JS;
+   case CallingConv::GHC:
+     return CC_AArch64_GHC;
++  case CallingConv::AnyReg:
+   case CallingConv::C:
+   case CallingConv::Fast:
+   case CallingConv::PreserveMost:
+@@ -5746,8 +5773,10 @@ CCAssignFn *AArch64TargetLowering::CCAssignFnForCall(CallingConv::ID CC,
  
  CCAssignFn *
  AArch64TargetLowering::CCAssignFnForReturn(CallingConv::ID CC) const {
@@ -38782,7 +39423,7 @@ index 06e21f90e..908453ae5 100644
  }
  
  SDValue AArch64TargetLowering::LowerFormalArguments(
-@@ -6557,6 +6585,7 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
+@@ -6557,6 +6586,7 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
  
    // Get a count of how many bytes are to be pushed on the stack.
    unsigned NumBytes = CCInfo.getNextStackOffset();
@@ -38790,7 +39431,7 @@ index 06e21f90e..908453ae5 100644
  
    if (IsSibCall) {
      // Since we're not changing the ABI to make this a tail call, the memory
-@@ -6577,6 +6606,7 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
+@@ -6577,6 +6607,7 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
      // Since callee will pop argument stack as a tail call, we must keep the
      // popped size 16-byte aligned.
      NumBytes = alignTo(NumBytes, 16);
@@ -38798,7 +39439,7 @@ index 06e21f90e..908453ae5 100644
  
      // FPDiff will be negative if this tail call requires more space than we
      // would automatically have in our incoming argument space. Positive if we
-@@ -6841,6 +6871,9 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
+@@ -6841,6 +6872,9 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
    // direct call is) turn it into a TargetGlobalAddress/TargetExternalSymbol
    // node so that legalize doesn't hack it.
    if (auto *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
@@ -38808,7 +39449,7 @@ index 06e21f90e..908453ae5 100644
      auto GV = G->getGlobal();
      unsigned OpFlags =
          Subtarget->classifyGlobalFunctionReference(GV, getTargetMachine());
-@@ -8700,7 +8733,11 @@ SDValue AArch64TargetLowering::LowerSPONENTRY(SDValue Op,
+@@ -8700,7 +8734,11 @@ SDValue AArch64TargetLowering::LowerSPONENTRY(SDValue Op,
  // this table could be generated automatically from RegInfo.
  Register AArch64TargetLowering::
  getRegisterByName(const char* RegName, LLT VT, const MachineFunction &MF) const {
@@ -38821,7 +39462,7 @@ index 06e21f90e..908453ae5 100644
    if (AArch64::X1 <= Reg && Reg <= AArch64::X28) {
      const MCRegisterInfo *MRI = Subtarget->getRegisterInfo();
      unsigned DwarfRegNum = MRI->getDwarfRegNum(Reg, false);
-@@ -8709,8 +8746,7 @@ getRegisterByName(const char* RegName, LLT VT, const MachineFunction &MF) const
+@@ -8709,8 +8747,7 @@ getRegisterByName(const char* RegName, LLT VT, const MachineFunction &MF) const
    }
    if (Reg)
      return Reg;
@@ -38831,7 +39472,7 @@ index 06e21f90e..908453ae5 100644
  }
  
  SDValue AArch64TargetLowering::LowerADDROFRETURNADDR(SDValue Op,
-@@ -13636,6 +13672,10 @@ bool AArch64TargetLowering::generateFMAsInMachineCombiner(
+@@ -13636,6 +13673,10 @@ bool AArch64TargetLowering::generateFMAsInMachineCombiner(
           !useSVEForFixedLengthVectorVT(VT);
  }
  
@@ -40052,7 +40693,7 @@ index 81729e361..ea96d3ac9 100644
    void reMaterialize(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
                       Register DestReg, unsigned SubIdx,
 diff --git a/llvm/lib/Target/X86/X86MCInstLower.cpp b/llvm/lib/Target/X86/X86MCInstLower.cpp
-index 3fbdb18a0..7c189b591 100644
+index 3fbdb18a0..710e386b3 100644
 --- a/llvm/lib/Target/X86/X86MCInstLower.cpp
 +++ b/llvm/lib/Target/X86/X86MCInstLower.cpp
 @@ -17,6 +17,7 @@
@@ -40607,7 +41248,7 @@ index 3fbdb18a0..7c189b591 100644
      OutStreamer->emitInstruction(TmpInst, getSubtargetInfo());
 +
 +    // move rslt from xmm0 to eax to do the fp16 calling-convetion adaption
-+    if (IsTruncToFP16) {
++    if (IsTruncToFP16 && !TT.isOSWindows()) {
 +      MCInst MovXMM0ToEAX = MCInstBuilder(X86::PINSRWrr)
 +                                .addReg(X86::XMM0)
 +                                .addReg(X86::XMM0)
@@ -50174,7 +50815,7 @@ index 000000000..f1a224b86
 +                    "CJ Barrier Opt", false, false)
 diff --git a/llvm/lib/Transforms/Scalar/CJBarrierSplit.cpp b/llvm/lib/Transforms/Scalar/CJBarrierSplit.cpp
 new file mode 100644
-index 000000000..c6c4d6985
+index 000000000..ce924cede
 --- /dev/null
 +++ b/llvm/lib/Transforms/Scalar/CJBarrierSplit.cpp
 @@ -0,0 +1,448 @@
@@ -50429,7 +51070,7 @@ index 000000000..c6c4d6985
 +                                    SmallVector<uint64_t, 8> &AllRefPos) {
 +    uint64_t EleNum = AT->getNumElements();
 +    Type *EleType = AT->getElementType();
-+    if (isa<PointerType>(EleType)) {
++    if (isa<PointerType>(EleType) && isGCPointerType(EleType)) {
 +      for (uint64_t Idx = 0; Idx < EleNum; Idx++) {
 +        AllRefPos.push_back(CurPos + 8 * Idx); // 8: pointer size
 +      }
@@ -52669,10 +53310,10 @@ index 000000000..7a0ebceff
 +                false)
 diff --git a/llvm/lib/Transforms/Scalar/CJGCLiveAnalysis.cpp b/llvm/lib/Transforms/Scalar/CJGCLiveAnalysis.cpp
 new file mode 100644
-index 000000000..ef2bf44a6
+index 000000000..9e616f9db
 --- /dev/null
 +++ b/llvm/lib/Transforms/Scalar/CJGCLiveAnalysis.cpp
-@@ -0,0 +1,1456 @@
+@@ -0,0 +1,1467 @@
 +//===- CJGCLiveAnalysis.cpp - GC Live Analysis For Cangjie ------*- C++ -*-===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -53849,6 +54490,17 @@ index 000000000..ef2bf44a6
 +    addGCFieldsByMemory(II->getArgOperand(0), AllocaDefs, MemSize);
 +    break;
 +  }
++  case Intrinsic::cj_array_copy_ref:
++  case Intrinsic::cj_array_copy_struct:
++  case Intrinsic::cj_array_copy_generic: {
++    uint64_t MemSize = 0;
++    if (auto Size = dyn_cast<ConstantInt>(getSize(II))) {
++      MemSize = Size->getZExtValue();
++    }
++    addGCFieldsByMemory(getDest(II), AllocaDefs, MemSize);
++    addGCFieldsByMemory(getSource(II), AllocaUses, MemSize);
++    break;
++  }
 +  case Intrinsic::lifetime_start:
 +    // lifetime_start means the begin of using a stack ptr.
 +    // we treat this ptr as a kill
@@ -53889,10 +54541,10 @@ index 000000000..ef2bf44a6
 +    Value *Arg = CB->getArgOperand(ArgIdx);
 +    Type *Ty = Arg->getType();
 +    if (Ty->isPointerTy() && !Ty->isOpaquePointerTy()) {
-+      if (auto *ST =
-+              dyn_cast<StructType>(Ty->getNonOpaquePointerElementType())) {
-+        Size = static_cast<unsigned>(DL.getTypeAllocSize(ST).getFixedSize());
-+      }
++      auto *Pointee = Ty->getNonOpaquePointerElementType();
++      if (isa<StructType>(Pointee) || isa<ArrayType>(Pointee))
++        Size =
++            static_cast<unsigned>(DL.getTypeAllocSize(Pointee).getFixedSize());
 +    }
 +
 +    addGCFieldsByMemory(Arg, AllocaUses, Size);
@@ -54951,10 +55603,10 @@ index 000000000..2a47341d0
 +                "Cangjie Generic Intrinsics Optimize", false, false)
 diff --git a/llvm/lib/Transforms/Scalar/CJIRVerifier.cpp b/llvm/lib/Transforms/Scalar/CJIRVerifier.cpp
 new file mode 100644
-index 000000000..e42071cd8
+index 000000000..657cbbfd5
 --- /dev/null
 +++ b/llvm/lib/Transforms/Scalar/CJIRVerifier.cpp
-@@ -0,0 +1,798 @@
+@@ -0,0 +1,804 @@
 +//===- CJIRVerifier.cpp - Cangjie IR Verifier --------------*- C++ -*------===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -55275,6 +55927,12 @@ index 000000000..e42071cd8
 +            (Callee->hasFnAttribute("cj2c") || Callee->hasFnAttribute("c2cj")))
 +          return;
 +      }
++      if (auto *II = dyn_cast<IntrinsicInst>(U))
++        if (II->getIntrinsicID() == Intrinsic::cj_blackhole)
++          return;
++      if (auto *II = dyn_cast<IntrinsicInst>(I.getOperand(0)))
++        if (II->getIntrinsicID() == Intrinsic::cj_blackhole)
++          return;
 +    }
 +
 +    for (const User *U : I.users()) {
@@ -55690,7 +56348,7 @@ index 000000000..e42071cd8
 +                                    SmallVector<uint64_t, 8> &AllRefPos) {
 +    uint64_t EleNum = AT->getNumElements();
 +    Type *EleType = AT->getElementType();
-+    if (isa<PointerType>(EleType)) {
++    if (isa<PointerType>(EleType) && isGCPointerType(EleType)) {
 +      for (uint64_t Idx = 0; Idx < EleNum; Idx++) {
 +        AllRefPos.push_back(CurPos + 8 * Idx); // 8: pointer size
 +      }
@@ -55753,7 +56411,7 @@ index 000000000..e42071cd8
 +  }
 +  return PreservedAnalyses::all();
 +}
-\ No newline at end of file
+
 diff --git a/llvm/lib/Transforms/Scalar/CJLoopFloatOpt.cpp b/llvm/lib/Transforms/Scalar/CJLoopFloatOpt.cpp
 new file mode 100644
 index 000000000..14b0d3f87
@@ -57776,10 +58434,10 @@ index 000000000..b83e440ed
 +}
 diff --git a/llvm/lib/Transforms/Scalar/CJRewriteStatepoint.cpp b/llvm/lib/Transforms/Scalar/CJRewriteStatepoint.cpp
 new file mode 100644
-index 000000000..9d6a39da8
+index 000000000..05496c794
 --- /dev/null
 +++ b/llvm/lib/Transforms/Scalar/CJRewriteStatepoint.cpp
-@@ -0,0 +1,3035 @@
+@@ -0,0 +1,3064 @@
 +//===- CJRewriteStatepoint.cpp - Make Cangjie GC relocations explicit -----===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -57903,6 +58561,8 @@ index 000000000..9d6a39da8
 +
 +static bool rewriteCJThrowException(Module &M);
 +
++static bool deleteUnusedBlackHole(Module &M);
++
 +PreservedAnalyses CJRewriteStatepoint::run(Module &M,
 +                                           ModuleAnalysisManager &AM) {
 +  if (DisableCJRewrite) {
@@ -57934,6 +58594,7 @@ index 000000000..9d6a39da8
 +  M.addModuleFlag(Module::Warning, "HasRewrittenStatepoint", true);
 +
 +  Changed |= rewriteCJThrowException(M);
++  Changed |= deleteUnusedBlackHole(M);
 +
 +  if (!Changed)
 +    return PreservedAnalyses::all();
@@ -60656,6 +61317,32 @@ index 000000000..9d6a39da8
 +  return true;
 +}
 +
++void prepareBlackHoleBody(Function *F) {
++  F->setLinkage(GlobalValue::PrivateLinkage);
++  BasicBlock *BB = BasicBlock::Create(F->getContext(), "entry", F);
++  ReturnInst::Create(F->getContext(), F->getArg(0), BB);
++}
++
++static bool deleteUnusedBlackHole(Module &M) {
++  Function *F = M.getFunction("CJ_LLVM_BlackHole");
++  if (!F || F->use_empty())
++    return false;
++  prepareBlackHoleBody(F);
++  SmallVector<CallBase *, 32> Users;
++  for (auto *U : F->users()) {
++    auto *CB = dyn_cast<CallBase>(U);
++    assert(CB != nullptr &&
++           "User of CJ_LLVM_BlackHole must be call instruction");
++    Users.push_back(CB);
++  }
++  for (auto *CB : Users) {
++    if (CB->use_empty()) {
++      CB->eraseFromParent();
++    }
++  }
++  return true;
++}
++
 +static void stripNonValidData(Module &M) {
 +#ifndef NDEBUG
 +  assert(llvm::any_of(M, shouldRewriteStatepointsIn) && "precondition!");
@@ -60817,10 +61504,10 @@ index 000000000..9d6a39da8
 +}
 diff --git a/llvm/lib/Transforms/Scalar/CJRuntimeLowering.cpp b/llvm/lib/Transforms/Scalar/CJRuntimeLowering.cpp
 new file mode 100644
-index 000000000..875ab4d5d
+index 000000000..9ca5aabf7
 --- /dev/null
 +++ b/llvm/lib/Transforms/Scalar/CJRuntimeLowering.cpp
-@@ -0,0 +1,1087 @@
+@@ -0,0 +1,1134 @@
 +//===- CJRuntimeLowering.cpp - CJ Runtime Lowering --------------*- C++ -*-===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -60921,7 +61608,12 @@ index 000000000..875ab4d5d
 +    {Intrinsic::cj_is_subtype, "CJ_MCC_IsSubType"},
 +    {Intrinsic::cj_is_tupletype_of, "CJ_MCC_IsTupleTypeOf"},
 +    {Intrinsic::cj_is_typeinfo_equal, "CJ_MCC_IsTypeInfoEqual"},
-+    {Intrinsic::cj_set_location, "SetDebugLocation"}};
++    {Intrinsic::cj_set_location, "SetDebugLocation"},
++    {Intrinsic::cj_cross_access_barrier, "CJ_MCC_CrossAccessBarrier"},
++    {Intrinsic::cj_get_exported_ref, "CJ_MCC_GetExportedRef"},
++    {Intrinsic::cj_remove_exported_ref, "CJ_MCC_RemoveExportedRef"},
++    {Intrinsic::cj_create_export_handle, "CJ_MCC_CreateExportHandle"},
++    {Intrinsic::cj_blackhole, "CJ_LLVM_BlackHole"}};
 +
 +struct LowerGetFieldOffset {
 +  CallBase *CI;
@@ -61119,27 +61811,50 @@ index 000000000..875ab4d5d
 +
 +  // cj.heapmalloc.class (i8* bitcast (TypeInfo* @Klass.ti to i8*), i32 size)
 +  void setHeapMallocSizeAlign(CallBase *CI) {
-+    auto HeapSizeAlign = [&](uint64_t Size) {
++    auto ConstantSizeAlign = [&](uint64_t Size) {
 +      Size += ObjectHeadSize;
 +      Size = (Size + 7) & (~(7)); // 8 bytes alignment
 +      CI->setArgOperand(1, ConstantInt::get(Type::getInt32Ty(C), Size));
 +    };
-+    if (auto *SizeVar = dyn_cast<ConstantInt>(CI->getArgOperand(1))) {
-+      HeapSizeAlign(SizeVar->getZExtValue());
-+      return;
++    auto VariableSizeAlign = [&](Value *Size, IRBuilder<> &IRB) {
++      auto *V = IRB.CreateAnd(IRB.CreateAdd(Size, IRB.getInt32(15)),
++                              IRB.getInt32(~7));
++      CI->setArgOperand(1, V);
++    };
++    auto GetTISizePointer = [this](Value *TI, IRBuilder<> &IRB) -> Value * {
++      Type *Ty = TI->getType()->getNonOpaquePointerElementType();
++      if (isa<GlobalVariable>(TI) || isa<StructType>(Ty))
++        return IRB.CreateInBoundsGEP(Ty, TI,
++                                     {IRB.getInt32(0), IRB.getInt32(CIT_SIZE)});
++      auto *ST = StructType::getTypeByName(M.getContext(), "TypeInfo");
++      if (!ST)
++        report_fatal_error("error");
++      auto *SL = M.getDataLayout().getStructLayout(ST);
++      auto *GEP =
++          IRB.CreateGEP(Ty, TI, {IRB.getInt32(SL->getElementOffset(CIT_SIZE))});
++      return IRB.CreateBitCast(GEP, IRB.getInt32Ty()->getPointerTo());
++    };
++
++    auto *TI = CI->getArgOperand(0)->stripPointerCasts();
++    auto *GV = dyn_cast<GlobalVariable>(TI);
++    // In Cangjie, non-fixed size classes allow member variable extension
++    // compatibility, so the size needs to be explicitly loaded from typeinfo.
++    if (!GV || !GV->hasAttribute("can_malloc_with_fixed_size")) {
++      IRBuilder<> IRB(CI);
++      auto *Ptr = GetTISizePointer(TI, IRB);
++      assert(Ptr->getType()->getNonOpaquePointerElementType() ==
++             IRB.getInt32Ty());
++      auto *LI = dyn_cast<Instruction>(IRB.CreateLoad(IRB.getInt32Ty(), Ptr));
++      LI->setDebugLoc(CI->getDebugLoc());
++      return VariableSizeAlign(LI, IRB);
 +    }
-+    auto *Klass =
-+        dyn_cast<GlobalVariable>(CI->getArgOperand(0)->stripPointerCasts());
-+    if (Klass && Klass->hasInitializer()) {
-+      TypeInfo TI(Klass);
-+      HeapSizeAlign(TI.getSize());
-+      return;
-+    }
++    if (auto *SizeVar = dyn_cast<ConstantInt>(CI->getArgOperand(1)))
++      return ConstantSizeAlign(SizeVar->getZExtValue());
++    if (GV && GV->hasInitializer())
++      return ConstantSizeAlign(TypeInfo(GV).getSize());
++
 +    IRBuilder<> IRB(CI);
-+    // 15: 8 bytes Typeinfo* and 7 bytes for align
-+    Value *V = IRB.CreateAdd(CI->getArgOperand(1), IRB.getInt32(15));
-+    Value *AlignSize = IRB.CreateAnd(V, IRB.getInt32(~(7))); // 8 bytes align
-+    CI->setArgOperand(1, AlignSize);
++    VariableSizeAlign(CI->getArgOperand(1), IRB);
 +  }
 +
 +  void replaceFixedNewObject(CallBase *&CI) {
@@ -61185,7 +61900,7 @@ index 000000000..875ab4d5d
 +    Function *Func = M.getFunction("CJ_MCC_NewWeakRefObject");
 +    if (Func == nullptr) {
 +      Func = M.declareCJRuntimeFunc("CJ_MCC_NewWeakRefObject",
-+                                    CI->getFunctionType(), true);
++                                    CI->getFunctionType(), false);
 +    }
 +    CI->setCalledFunction(Func);
 +  }
@@ -61536,8 +62251,13 @@ index 000000000..875ab4d5d
 +    StringRef Callee = getRuntimeFuncName(CI);
 +    assert(Callee != "" && "Callee don`t exist.");
 +    auto Itr = RTFuncMap.find(Callee);
-+    if (Itr != RTFuncMap.end())
-+      return Itr->second;
++    if (Itr != RTFuncMap.end()) {
++      Function *RTFunc = Itr->second;
++      if (!RTFunc->isDeclaration()) {
++        RTFunc->deleteBody();
++      }
++      return RTFunc;
++    }
 +
 +    FunctionType *FT = FuncType ? FuncType : CI->getFunctionType();
 +    Function *Func = M.declareCJRuntimeFunc(Callee, FT, GCLeafFunc, GCMalloc);
@@ -61551,6 +62271,10 @@ index 000000000..875ab4d5d
 +    if (Func->getName().isSetDebugLocation())
 +      Func->setUnnamedAddr(GlobalValue::UnnamedAddr::Local);
 +    RTFuncMap[Callee] = Func;
++    if (CI->getIntrinsicID() == Intrinsic::cj_blackhole) {
++      Func->addFnAttr(Attribute::ReadNone);
++      Func->setCallingConv(CallingConv::AnyReg);
++    }
 +    return Func;
 +  }
 +
@@ -61581,6 +62305,7 @@ index 000000000..875ab4d5d
 +      AI = IRB.CreateAlloca(StructType::get(C, ElemTypes));
 +      Value *BC = IRB.CreateBitCast(AI, IRB.getInt8PtrTy()->getPointerTo());
 +      Value *GVExpr = ConstantExpr::getBitCast(GV, IRB.getInt8PtrTy());
++      IRB.SetInsertPoint(CI);
 +      IRB.CreateStore(GVExpr, BC);
 +    } else {
 +      StructType *ST = getTypeLayoutType(GV);
@@ -61596,9 +62321,9 @@ index 000000000..875ab4d5d
 +      // %x.payload = getelementptr i8*, %x.i, i32 1
 +      // call @memset(%x.payload, 0, size)
 +      Value *Data = IRB.CreateGEP(IRB.getInt8PtrTy(), BC, {IRB.getInt32(1)});
++      IRB.SetInsertPoint(CI);
 +      IRB.CreateMemSet(Data, IRB.getInt8(0), MemSize, Align(8));
 +    }
-+    IRB.SetInsertPoint(CI);
 +    Value *ASC = IRB.CreateAddrSpaceCast(AI, IRB.getInt8PtrTy(1));
 +    CI->replaceAllUsesWith(ASC);
 +    // Set terminator for invoke instruction.
@@ -61747,6 +62472,15 @@ index 000000000..875ab4d5d
 +      Lowering.replaceWithRuntimeFunc(CI, true, false);
 +      Changed = true;
 +      break;
++    case Intrinsic::cj_blackhole:
++      Lowering.replaceWithRuntimeFunc(CI, true, false);
++      CI->setCallingConv(CallingConv::AnyReg);
++      Changed = true;
++      break;
++    case Intrinsic::cj_cross_access_barrier:
++    case Intrinsic::cj_get_exported_ref:
++    case Intrinsic::cj_remove_exported_ref:
++    case Intrinsic::cj_create_export_handle:
 +    case Intrinsic::cj_fill_in_stack_trace:
 +      Lowering.replaceWithRuntimeFunc(CI, false, false);
 +      Changed = true;
@@ -61910,10 +62644,10 @@ index 000000000..875ab4d5d
 +                "CJ Runtime Lowering", false, false)
 diff --git a/llvm/lib/Transforms/Scalar/CJSimpleOpt.cpp b/llvm/lib/Transforms/Scalar/CJSimpleOpt.cpp
 new file mode 100644
-index 000000000..2a4a87410
+index 000000000..9acf404d9
 --- /dev/null
 +++ b/llvm/lib/Transforms/Scalar/CJSimpleOpt.cpp
-@@ -0,0 +1,888 @@
+@@ -0,0 +1,900 @@
 +//===- CJSimpleOpt.cpp - Simple opt of cangjie -------------------*- C++-*-===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -61940,6 +62674,7 @@ index 000000000..2a4a87410
 +#include "llvm/IR/Function.h"
 +#include "llvm/IR/IRBuilder.h"
 +#include "llvm/IR/InstIterator.h"
++#include "llvm/IR/Instruction.h"
 +#include "llvm/IR/InstrTypes.h"
 +#include "llvm/IR/Instructions.h"
 +#include "llvm/IR/PatternMatch.h"
@@ -62040,8 +62775,12 @@ index 000000000..2a4a87410
 +    }
 +    bool Changed = false;
 +    SetVector<CallBase *> Memsets;
++    SetVector<Instruction *> FuncInsts;
 +    for (auto I = inst_begin(F); I != inst_end(F);) {
-+      auto *CB = dyn_cast<CallBase>(&*I++);
++      FuncInsts.insert(&*I++);
++    }
++    for (auto *FuncInst : FuncInsts) {
++      auto *CB = dyn_cast<CallBase>(FuncInst);
 +      if (CB == nullptr ||
 +          CB->getArgOperandWithAttribute(Attribute::StructRet) == nullptr)
 +        continue;
@@ -62111,9 +62850,15 @@ index 000000000..2a4a87410
 +  bool replaceCJCallRet(CallRetUnit &CRU, GetElementPtrInst *GEP,
 +                        SetVector<CallBase *> &Memsets) {
 +    if (GEP != nullptr) {
-+      if (CRU.CJMemset == nullptr)
-+        GEP->moveBefore(CRU.CB);
-+      else
++      if (CRU.CJMemset == nullptr) {
++        auto *CallRetWithoutCast =
++            dyn_cast<Instruction>(CRU.CB->getArgOperand(0));
++        if (CallRetWithoutCast == CRU.CallRet) {
++          GEP->moveBefore(CRU.CB);
++        } else {
++          GEP->moveBefore(CallRetWithoutCast);
++        }
++      } else
 +        return false;
 +    }
 +    if (CRU.CJMemset != nullptr && !PDT.dominates(CRU.CB, CRU.CJMemset))
@@ -62386,6 +63131,7 @@ index 000000000..2a4a87410
 +        Attribute::get(F->getContext(), "gc-leaf-function"));
 +    GetCJThreadIdFunc->addFnAttr(Attribute::get(F->getContext(), "cj-runtime"));
 +    GetCJThreadIdFunc->setCallingConv(CallingConv::CangjieGC);
++    GetCJThreadIdFunc->setUnnamedAddr(GlobalValue::UnnamedAddr::Local);
 +    auto *CallInst = IRB.CreateCall(GetCJThreadIdFunc);
 +    CallInst->setCallingConv(CallingConv::CangjieGC);
 +    auto *StoreInst = IRB.CreateStore(CallInst, MutexCjthreadIdPtr);
@@ -64204,32 +64950,18 @@ index 6cdc671dd..50ee01c2b 100644
  }
  
 diff --git a/llvm/lib/Transforms/Scalar/IndVarSimplify.cpp b/llvm/lib/Transforms/Scalar/IndVarSimplify.cpp
-index 9698ed973..81a64bd8b 100644
+index 9698ed973..8396f6e5b 100644
 --- a/llvm/lib/Transforms/Scalar/IndVarSimplify.cpp
 +++ b/llvm/lib/Transforms/Scalar/IndVarSimplify.cpp
-@@ -94,6 +94,11 @@ STATISTIC(NumLFTR        , "Number of loop exit tests replaced");
- STATISTIC(NumElimExt     , "Number of IV sign/zero extends eliminated");
- STATISTIC(NumElimIV      , "Number of congruent IVs eliminated");
+@@ -1968,8 +1968,6 @@ bool IndVarSimplify::run(Loop *L) {
+     SE->forgetLoop(L);
+   }
  
-+namespace llvm {
-+extern cl::opt<bool> CJPipeline;
-+extern cl::opt<bool> EnableCJIRCEPass;
-+} // namespace llvm
-+
- // Trip count verification can be enabled by default under NDEBUG if we
- // implement a strong expression equivalence checker in SCEV. Until then, we
- // use the verify-indvars flag, which may assert in some cases.
-@@ -1970,7 +1975,9 @@ bool IndVarSimplify::run(Loop *L) {
- 
-   // If we have a trip count expression, rewrite the loop's exit condition
-   // using it.
--  if (!DisableLFTR) {
-+  // In cangjie, close LFTR because it affects IRCE.
-+  bool LFTREnable = CJPipeline ? !EnableCJIRCEPass && !DisableLFTR : !DisableLFTR;
-+  if (LFTREnable) {
+-  // If we have a trip count expression, rewrite the loop's exit condition
+-  // using it.
+   if (!DisableLFTR) {
      BasicBlock *PreHeader = L->getLoopPreheader();
  
-     SmallVector<BasicBlock*, 16> ExitingBlocks;
 diff --git a/llvm/lib/Transforms/Scalar/InductiveRangeCheckElimination.cpp b/llvm/lib/Transforms/Scalar/InductiveRangeCheckElimination.cpp
 index 328615011..98d07b460 100644
 --- a/llvm/lib/Transforms/Scalar/InductiveRangeCheckElimination.cpp
@@ -90384,6 +91116,85 @@ index 000000000..8a90cf812
 +  call void @f()
 +  br label %loop
 +}
+diff --git a/llvm/test/Transforms/CJRewriteStatepoint/cj-blackhole.ll b/llvm/test/Transforms/CJRewriteStatepoint/cj-blackhole.ll
+new file mode 100644
+index 000000000..925491b51
+--- /dev/null
++++ b/llvm/test/Transforms/CJRewriteStatepoint/cj-blackhole.ll
+@@ -0,0 +1,73 @@
++;RUN: opt < %s -passes=cj-rewrite-statepoint -S 2>&1 | FileCheck %s
++
++%TypeInfo = type { i8*, i8, i8, i16, i32, %BitMap*, i32, i8, i8, i16, i32*, i8*, i8*, i8*, %TypeInfo*, %ExtensionDef**, i8*, i8* }
++%BitMap = type { i32, [0 x i8] }
++%ExtensionDef = type { i32, i8, i8*, i8*, i8*, i8* }
++%Unit.Type = type {}
++
++@"default:cc.ti" = global %TypeInfo { i8* null, i8 -128, i8 64, i16 2, i32 16, %BitMap* inttoptr (i64 -9223372036854775808 to %BitMap*), i32 0, i8 8, i8 0, i16 -32768, i32* null, i8* null, i8* null, i8* null, %TypeInfo* null, %ExtensionDef** null, i8* null, i8* null }
++
++declare i8* @CJ_LLVM_BlackHole(i8* %0)
++
++declare cangjiegccc void @CJ_MCC_HandleSafepoint()
++
++declare void @CJ_MCC_StackCheck()
++
++declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)
++
++declare i8 addrspace(1)* @CJ_MCC_NewObject(i8*, i32)
++
++; CHECK-LABEL: _CN7default3fooHv(
++define i64 @_CN7default3fooHv() {
++allocas:
++  call cangjiegccc void @CJ_MCC_StackCheck()
++  %b = alloca i64, align 8
++  %c = alloca i64, align 8
++  store i64 5, i64* %b, align 8
++  %0 = bitcast i64* %b to i8*
++  call cangjiegccc void @CJ_MCC_HandleSafepoint()
++  %1 = call i8* @CJ_LLVM_BlackHole(i8* nonnull %0)
++  %2 = bitcast i8* %1 to i64*
++  %3 = load i64, i64* %2, align 8
++  %4 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %3, i64 1)
++  %.fca.1.extract = extractvalue { i64, i1 } %4, 1
++  br i1 %.fca.1.extract, label %codeRepl, label %normal
++
++normal:                                           ; preds = %allocas
++  %.fca.0.extract = extractvalue { i64, i1 } %4, 0
++  store i64 %.fca.0.extract, i64* %c, align 8
++  %5 = bitcast i64* %c to i8*
++; CHECK-NOT: %6 = call i8* @CJ_LLVM_BlackHole(i8* nonnull %5)
++  %6 = call i8* @CJ_LLVM_BlackHole(i8* nonnull %5)
++  ret i64 0
++
++codeRepl:                                         ; preds = %allocas
++  unreachable
++}
++
++; CHECK-LABEL: _CN7default4foo2HCNY_1AE(
++define i8 addrspace(1)* @_CN7default4foo2HCNY_1AE(i8 addrspace(1)* %a) gc "cangjie" {
++allocas:
++  call cangjiegccc void @CJ_MCC_StackCheck()
++  %0 = alloca %Unit.Type, align 8
++  call cangjiegccc void @CJ_MCC_HandleSafepoint()
++  %1 = tail call noalias i8 addrspace(1)* @CJ_MCC_NewObject(i8* bitcast (%TypeInfo* @"default:cc.ti" to i8*), i32 24)
++  %2 = getelementptr i8, i8 addrspace(1)* %1, i64 8
++  %3 = bitcast i8 addrspace(1)* %2 to <2 x i64> addrspace(1)*
++  store <2 x i64> <i64 1, i64 10>, <2 x i64> addrspace(1)* %3, align 8
++  %4 = bitcast i8 addrspace(1)* %a to %TypeInfo* addrspace(1)*
++  %ti = load %TypeInfo*, %TypeInfo* addrspace(1)* %4, align 8
++  %5 = getelementptr %TypeInfo, %TypeInfo* %ti, i64 0, i32 15
++  %6 = load %ExtensionDef**, %ExtensionDef*** %5, align 8
++  %7 = load %ExtensionDef*, %ExtensionDef** %6, align 8
++  %8 = getelementptr %ExtensionDef, %ExtensionDef* %7, i64 0, i32 5
++  %9 = bitcast i8** %8 to void (%Unit.Type*, i8 addrspace(1)*, i8 addrspace(1)*, %TypeInfo*)***
++  %10 = load void (%Unit.Type*, i8 addrspace(1)*, i8 addrspace(1)*, %TypeInfo*)**, void (%Unit.Type*, i8 addrspace(1)*, i8 addrspace(1)*, %TypeInfo*)*** %9, align 8
++  %11 = load void (%Unit.Type*, i8 addrspace(1)*, i8 addrspace(1)*, %TypeInfo*)*, void (%Unit.Type*, i8 addrspace(1)*, i8 addrspace(1)*, %TypeInfo*)** %10, align 8
++; CHECK: %token7 = call token (...) @llvm.cj.gc.statepoint(i64 0, i32 0, void (%Unit.Type*, i8 addrspace(1)*, i8 addrspace(1)*, %TypeInfo*)* %11, i32 4, i32 0, %Unit.Type* nonnull sret(%Unit.Type) %0, i8 addrspace(1)* %a.reloc5, i8 addrspace(1)* %1, %TypeInfo* %ti) [ "gc-live"(i8 addrspace(1)* %1, i8 addrspace(1)* %a.reloc5) ]
++  call void %11(%Unit.Type* noalias nonnull sret(%Unit.Type) %0, i8 addrspace(1)* %a, i8 addrspace(1)* %1, %TypeInfo* %ti)
++  %12 = addrspacecast i8 addrspace(1)* %1 to i8*
++  %13 = call i8* @CJ_LLVM_BlackHole(i8* %12)
++  %14 = addrspacecast i8* %13 to i8 addrspace(1)*
++  ret i8 addrspace(1)* %14
++}
 diff --git a/llvm/test/Transforms/CJRewriteStatepoint/codegen-cond.ll b/llvm/test/Transforms/CJRewriteStatepoint/codegen-cond.ll
 new file mode 100644
 index 000000000..b938f1a5a
@@ -97060,7 +97871,7 @@ index 000000000..000bc3ded
 +}
 diff --git a/llvm/test/Transforms/CJRuntimeLowering/alloca_generic.ll b/llvm/test/Transforms/CJRuntimeLowering/alloca_generic.ll
 new file mode 100644
-index 000000000..28518bfb1
+index 000000000..5041c0e10
 --- /dev/null
 +++ b/llvm/test/Transforms/CJRuntimeLowering/alloca_generic.ll
 @@ -0,0 +1,73 @@
@@ -97134,16 +97945,17 @@ index 000000000..28518bfb1
 +  ret void
 +}
 +
-+attributes #0 = { "CFileKlass" }
++attributes #0 = { "CFileKlass" "can_malloc_with_fixed_size" }
 +
 +!0 = !{!"Int64.Type"}
 diff --git a/llvm/test/Transforms/CJRuntimeLowering/new_finalier.ll b/llvm/test/Transforms/CJRuntimeLowering/new_finalier.ll
 new file mode 100644
-index 000000000..ad996078d
+index 000000000..2b5883163
 --- /dev/null
 +++ b/llvm/test/Transforms/CJRuntimeLowering/new_finalier.ll
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,17 @@
 +; RUN: opt < %s -passes=cj-runtime-lowering -S | FileCheck %s
++%TypeInfo = type { i8*, i8, i8, i16, i32, i8*, i32, i8, i8, i32*, i8*, i8*, i8*, i8*, i8*, i8* }
 +
 +declare i8 addrspace(1)* @llvm.cj.malloc.object(i8*, i32)
 +
@@ -97161,11 +97973,12 @@ index 000000000..ad996078d
 +!0 = !{!"HasFinalizer"}
 diff --git a/llvm/test/Transforms/CJRuntimeLowering/runtime_func_attribute.ll b/llvm/test/Transforms/CJRuntimeLowering/runtime_func_attribute.ll
 new file mode 100644
-index 000000000..3b94c870e
+index 000000000..4329da98f
 --- /dev/null
 +++ b/llvm/test/Transforms/CJRuntimeLowering/runtime_func_attribute.ll
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,36 @@
 +; RUN: opt < %s -passes=cj-runtime-lowering -S | FileCheck %s
++%TypeInfo = type { i8*, i8, i8, i16, i32, i8*, i32, i8, i8, i32*, i8*, i8*, i8*, i8*, i8*, i8* }
 +
 +declare i8 addrspace(1)* @llvm.cj.malloc.object(i8*, i32)
 +
@@ -97179,6 +97992,9 @@ index 000000000..3b94c870e
 +
 +; Transfer the original function's attributes.
 +
++; CHECK:    %3 = load i32, i32* %2, align 4
++; CHECK:    %4 = add i32 %3, 15
++; CHECK     %5 = and i32 %4, -8
 +; CHECK:    declare noalias i8 addrspace(1)* @CJ_MCC_NewObject(i8*, i32) #2
 +; CHECK:    declare i8* @CJ_MCC_GetExceptionWrapper() #3
 +; CHECK:    declare i8 addrspace(1)* @CJ_MCC_PostThrowException(i8*) #3
