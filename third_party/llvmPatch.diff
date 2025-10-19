@@ -2373,6 +2373,7 @@ index c9a6d0f06..d3c81050d 100644
  %include "./interface/SBModule.i"
  %include "./interface/SBModuleSpec.i"
  %include "./interface/SBPlatform.i"
+
 diff --git a/lldb/include/lldb/API/LLDB.h b/lldb/include/lldb/API/LLDB.h
 index eacbbeafc..f5b68f14c 100644
 --- a/lldb/include/lldb/API/LLDB.h
@@ -2733,6 +2734,7 @@ index 294fd96bc..ca5a19f12 100644
 +    ~CJThread() = default;
 +  };
 +
+
  private:
    /// Construct with optional file and arch.
    ///
@@ -17195,6 +17197,7 @@ index f16fc6b5d..52abd534e 100644
    }
  
    if (execution_results == eExpressionCompleted)
+
 diff --git a/lldb/source/Target/TargetList.cpp b/lldb/source/Target/TargetList.cpp
 index 829036976..a4d9b372b 100644
 --- a/lldb/source/Target/TargetList.cpp
@@ -56408,6 +56411,7 @@ index 000000000..657cbbfd5
 +  }
 +  return PreservedAnalyses::all();
 +}
+
 diff --git a/llvm/lib/Transforms/Scalar/CJLoopFloatOpt.cpp b/llvm/lib/Transforms/Scalar/CJLoopFloatOpt.cpp
 new file mode 100644
 index 000000000..14b0d3f87
