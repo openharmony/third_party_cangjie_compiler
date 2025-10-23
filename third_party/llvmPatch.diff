@@ -2226,7 +2226,7 @@ index 000000000..e610f6d60
 +- [Cangjie Runtime](https://gitcode.com/Cangjie/cangjie-runtime/tree/release-cangjie-merged/std): Essential standard library code for the Cangjie language.
 diff --git a/lldb/README_zh.md b/lldb/README_zh.md
 new file mode 100644
-index 000000000..5b69e1188
+index 000000000..ad3735d48
 --- /dev/null
 +++ b/lldb/README_zh.md
 @@ -0,0 +1,90 @@
@@ -2312,7 +2312,7 @@ index 000000000..5b69e1188
 +
 +### 集成构建指导
 +
-+集成构建请参阅 [仓颉 SDK 集成构建指导书](https://gitcode.com/Cangjie/cangjie_build/blob/dev/README_zh.md)。
++集成构建请参阅 [仓颉 SDK 集成构建指导书](https://gitcode.com/Cangjie/cangjie_build/blob/main/README_zh.md)。
 +
 +## 相关仓
 +
@@ -2373,6 +2373,10 @@ index c9a6d0f06..d3c81050d 100644
  %include "./interface/SBModule.i"
  %include "./interface/SBModuleSpec.i"
  %include "./interface/SBPlatform.i"
+diff --git a/lldb/docs/CJDB_Architecture_Diagram.png b/lldb/docs/CJDB_Architecture_Diagram.png
+new file mode 100644
+index 000000000..99f332305
+Binary files /dev/null and b/lldb/docs/CJDB_Architecture_Diagram.png differ
 diff --git a/lldb/include/lldb/API/LLDB.h b/lldb/include/lldb/API/LLDB.h
 index eacbbeafc..f5b68f14c 100644
 --- a/lldb/include/lldb/API/LLDB.h
@@ -18581,7 +18585,7 @@ index eee4c50cc..d3dc49a5a 100644
  
  enum ComdatSelectionKindCodes {
 diff --git a/llvm/include/llvm/CodeGen/AsmPrinter.h b/llvm/include/llvm/CodeGen/AsmPrinter.h
-index 5e900e916..2c5d18d85 100644
+index 5e900e916..17d033867 100644
 --- a/llvm/include/llvm/CodeGen/AsmPrinter.h
 +++ b/llvm/include/llvm/CodeGen/AsmPrinter.h
 @@ -33,6 +33,7 @@ namespace llvm {
@@ -18592,24 +18596,25 @@ index 5e900e916..2c5d18d85 100644
  class Constant;
  class ConstantArray;
  class DataLayout;
-@@ -194,6 +195,8 @@ private:
+@@ -194,6 +195,9 @@ private:
  protected:
    MCSymbol *CurrentFnBegin = nullptr;
  
 +  std::map<const MachineInstr *, std::pair<MCSymbol *, MCSymbol *>> StackCheckMap;
 +  SmallVector<std::tuple<const MachineInstr *, MCSymbol *, MCSymbol *>> SafepointStackMap;
++  SmallVector<std::tuple<MCSymbol *, MCSymbol *, MCSymbol *>> CangjieStubMap;
    /// A vector of all debug/EH info emitters we should use. This vector
    /// maintains ownership of the emitters.
    std::vector<HandlerInfo> Handlers;
-@@ -229,6 +232,32 @@ private:
+@@ -229,6 +233,33 @@ private:
  protected:
    explicit AsmPrinter(TargetMachine &TM, std::unique_ptr<MCStreamer> Streamer);
  
 +  void emitCangjieStackCheck(const MachineInstr &MI);
-+  bool tryEmitCangjieSpecificCall(const MachineInstr *MI);
-+  bool tryEmitCangjieSpecificCallByMOSym(const MachineInstr *MI,
-+                                         const MachineOperand &MOSym,
-+                                         unsigned Opcode);
++  virtual bool tryEmitCangjieSpecificCall(const MachineInstr *MI);
++  virtual bool tryEmitCangjieSpecificCallByMOSym(const MachineInstr *MI,
++                                                 const MachineOperand &MOSym,
++                                                 unsigned Opcode);
 +
 +  virtual void emitMccNewObjectFastPath(const MachineInstr *,
 +                                        const MachineOperand &, unsigned) {};
@@ -18623,6 +18628,7 @@ index 5e900e916..2c5d18d85 100644
 +                                           const Function *F,
 +                                           const MachineOperand &MOSym,
 +                                           unsigned Opcode){};
++  virtual void emitCangjieCustomInst() {};
 +  virtual void emitGetCJThreadId() {};
 +
 +  int64_t getAllocBufferOffsetInCJTLS() const;
@@ -18634,7 +18640,7 @@ index 5e900e916..2c5d18d85 100644
  public:
    ~AsmPrinter() override;
  
-@@ -479,7 +508,7 @@ public:
+@@ -479,7 +510,7 @@ public:
    /// label of that alias needs to be emitted before the corresponding element.
    using AliasMapTy = DenseMap<uint64_t, SmallVector<const GlobalAlias *, 1>>;
    void emitGlobalConstant(const DataLayout &DL, const Constant *CV,
@@ -18643,7 +18649,7 @@ index 5e900e916..2c5d18d85 100644
  
    /// Unnamed constant global variables solely contaning a pointer to
    /// another globals variable act like a global variable "proxy", or GOT
-@@ -499,6 +528,9 @@ public:
+@@ -499,6 +530,9 @@ public:
    /// Emit the stack maps.
    void emitStackMaps(StackMaps &SM);
  
@@ -18653,7 +18659,7 @@ index 5e900e916..2c5d18d85 100644
    //===------------------------------------------------------------------===//
    // Overridable Hooks
    //===------------------------------------------------------------------===//
-@@ -536,6 +568,26 @@ public:
+@@ -536,6 +570,26 @@ public:
    /// Targets can override this to emit stuff at the end of a basic block.
    virtual void emitBasicBlockEnd(const MachineBasicBlock &MBB);
  
@@ -18680,7 +18686,7 @@ index 5e900e916..2c5d18d85 100644
    /// Targets should implement this to emit instructions.
    virtual void emitInstruction(const MachineInstr *) {
      llvm_unreachable("EmitInstruction not implemented");
-@@ -655,6 +707,9 @@ public:
+@@ -655,6 +709,9 @@ public:
    /// Desc is a string saying what the encoding is specifying (e.g. "LSDA").
    void emitEncodingByte(unsigned Val, const char *Desc = nullptr) const;
  
@@ -18692,10 +18698,10 @@ index 5e900e916..2c5d18d85 100644
  
 diff --git a/llvm/include/llvm/CodeGen/CJMetadata.h b/llvm/include/llvm/CodeGen/CJMetadata.h
 new file mode 100644
-index 000000000..9d0ecbd9f
+index 000000000..8b477ab78
 --- /dev/null
 +++ b/llvm/include/llvm/CodeGen/CJMetadata.h
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,153 @@
 +//===- CodeGen/CJMetadata.h - Self-Defined CJMetadata Section ---*- C++ -*-===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -18845,6 +18851,7 @@ index 000000000..9d0ecbd9f
 +  CompressedInfo::ItemIdxHelper<std::string> SplitedMangledStr;
 +  MCSymbol *StrPoolDictOffsetsSym;
 +  uint64_t StrPoolIdx;
++  uint32_t FuncPtrSize;
 +};
 +} // namespace llvm
 +#endif // LLVM_CODEGEN_CJMETADATA_H
@@ -19637,7 +19644,7 @@ index 000000000..e89c72887
 +} // end namespace llvm
 +#endif // LLVM_CODEGEN_STACKMAPENCODE_H
 diff --git a/llvm/include/llvm/CodeGen/StackMaps.h b/llvm/include/llvm/CodeGen/StackMaps.h
-index 01cc9bc37..50f87636f 100644
+index 01cc9bc37..d8c04a760 100644
 --- a/llvm/include/llvm/CodeGen/StackMaps.h
 +++ b/llvm/include/llvm/CodeGen/StackMaps.h
 @@ -22,12 +22,13 @@
@@ -19771,7 +19778,7 @@ index 01cc9bc37..50f87636f 100644
    };
  
    struct CallsiteInfo {
-@@ -314,17 +369,28 @@ public:
+@@ -314,17 +369,30 @@ public:
      uint64_t ID = 0;
      LocationVec Locations;
      LiveOutVec LiveOuts;
@@ -19800,10 +19807,12 @@ index 01cc9bc37..50f87636f 100644
 +  inline bool isX86_64() const { return IsX86_64; }
 +  inline void setAArch64() { IsAArch64 = true; }
 +  inline bool isAArch64() const { return IsAArch64; }
++  inline void setARM() { IsARM = true; }
++  inline bool isARM() const { return IsARM; }
    /// Generate a stackmap record for a stackmap instruction.
    ///
    /// MI must be a raw STACKMAP, not a PATCHPOINT.
-@@ -336,20 +402,33 @@ public:
+@@ -336,20 +404,33 @@ public:
                          const MachineInstr &MI);
  
    /// Generate a stackmap record for a statepoint instruction.
@@ -19839,12 +19848,13 @@ index 01cc9bc37..50f87636f 100644
  private:
    static const char *WSMP;
  
-@@ -357,18 +436,56 @@ private:
+@@ -357,18 +438,57 @@ private:
    CallsiteInfoList CSInfos;
    ConstantPool ConstPool;
    FnInfoMap FnInfos;
 +  bool IsX86_64 = false;
 +  bool IsAArch64 = false;
++  bool IsARM = false;
 +
 +  void processArrayType(ArrayType *ST, int64_t RefOffset,
 +                        LocationVec &Locations, unsigned Reg,
@@ -19900,7 +19910,7 @@ index 01cc9bc37..50f87636f 100644
  
    /// Create a live-out register record for the given register @p Reg.
    LiveOutReg createLiveOutReg(unsigned Reg,
-@@ -384,12 +501,12 @@ private:
+@@ -384,12 +504,12 @@ private:
    /// STACKMAP, and PATCHPOINT the label is expected to immediately *preceed*
    /// lowering of the MI to MCInsts.  For STATEPOINT, it expected to
    /// immediately *follow*.  It's not clear this difference was intentional,
@@ -19919,7 +19929,7 @@ index 01cc9bc37..50f87636f 100644
  
    /// Emit the stackmap header.
    void emitStackmapHeader(MCStreamer &OS);
-@@ -405,6 +522,12 @@ private:
+@@ -405,6 +525,12 @@ private:
  
    void print(raw_ostream &OS);
    void debug() { print(dbgs()); }
@@ -20758,7 +20768,7 @@ index 4ff48c366..fd01aa3bd 100644
  class AssumeInst : public IntrinsicInst {
  public:
 diff --git a/llvm/include/llvm/IR/Intrinsics.td b/llvm/include/llvm/IR/Intrinsics.td
-index d46fa4fbf..6a5019003 100644
+index d46fa4fbf..e29a51efb 100644
 --- a/llvm/include/llvm/IR/Intrinsics.td
 +++ b/llvm/include/llvm/IR/Intrinsics.td
 @@ -180,6 +180,9 @@ class LLVMQualPointerType<LLVMType elty, int addrspace>
@@ -20840,14 +20850,14 @@ index d46fa4fbf..6a5019003 100644
 +                                                [llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptrgcptr_ty],
 +                                                [IntrArgMemOnly, NoCapture<ArgIndex<1>>, NoCapture<ArgIndex<2>>]>;
 +def int_cj_gcwrite_struct           : Intrinsic<[],
-+                                                [llvm_gcptr_ty, llvm_gcptr_ty, llvm_anyptr_ty, llvm_i64_ty],
++                                                [llvm_gcptr_ty, llvm_gcptr_ty, llvm_anyptr_ty, llvm_anyint_ty],
 +                                                [IntrArgMemOnly, NoCapture<ArgIndex<1>>, NoCapture<ArgIndex<2>>, NoAlias<ArgIndex<1>>,
 +                                                 NoAlias<ArgIndex<2>>, WriteOnly<ArgIndex<1>>, ReadOnly<ArgIndex<2>>]>;
 +def int_cj_gcwrite_static_ref       : Intrinsic<[],
 +                                                [llvm_gcptr_ty, llvm_ptrgcptr_ty],
 +                                                [IntrArgMemOnly, NoCapture<ArgIndex<1>>]>;
 +def int_cj_gcwrite_static_struct    : Intrinsic<[],
-+                                                [llvm_ptr_ty, llvm_ptr_ty, llvm_i64_ty],
++                                                [llvm_ptr_ty, llvm_ptr_ty, llvm_anyint_ty],
 +                                                [IntrArgMemOnly, NoCapture<ArgIndex<0>>, NoCapture<ArgIndex<1>>,
 +                                                 NoAlias<ArgIndex<0>>, NoAlias<ArgIndex<1>>, WriteOnly<ArgIndex<0>>, ReadOnly<ArgIndex<1>>]>;
 +def int_cj_gcread_ref               : Intrinsic<[llvm_gcptr_ty],
@@ -20858,22 +20868,22 @@ index d46fa4fbf..6a5019003 100644
 +                                                [IntrReadMem, IntrArgMemOnly, NoCapture<ArgIndex<0>>, NoCapture<ArgIndex<1>>]>;
 +
 +def int_cj_gcread_struct            : Intrinsic<[],
-+                                                [llvm_ptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_i64_ty],
++                                                [llvm_ptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_anyint_ty],
 +                                                [IntrArgMemOnly, NoCapture<ArgIndex<1>>, NoCapture<ArgIndex<2>>, NoAlias<ArgIndex<1>>,
 +                                                 NoAlias<ArgIndex<2>>, WriteOnly<ArgIndex<0>>, ReadOnly<ArgIndex<2>>]>;
 +def int_cj_gcread_static_ref        : Intrinsic<[llvm_gcptr_ty],
 +                                                [llvm_ptrgcptr_ty],
 +                                                [IntrReadMem, IntrArgMemOnly, NoCapture<ArgIndex<0>>]>;
 +def int_cj_gcread_static_struct     : Intrinsic<[],
-+                                                [llvm_ptr_ty, llvm_ptr_ty, llvm_i64_ty],
++                                                [llvm_ptr_ty, llvm_ptr_ty, llvm_anyint_ty],
 +                                                [IntrArgMemOnly, NoCapture<ArgIndex<0>>, NoCapture<ArgIndex<1>>,
 +                                                 NoAlias<ArgIndex<0>>, NoAlias<ArgIndex<1>>, WriteOnly<ArgIndex<0>>, ReadOnly<ArgIndex<1>>]>;
 +def int_cj_array_copy_ref           : Intrinsic<[],
-+                                                [llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_i64_ty]>;
++                                                [llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_anyint_ty]>;
 +def int_cj_array_copy_struct        : Intrinsic<[],
-+                                                [llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_i64_ty]>;
++                                                [llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_anyint_ty]>;
 +def int_cj_copy_struct_field        : Intrinsic<[],
-+                                                [llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_i64_ty]>;
++                                                [llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_anyint_ty]>;
 +def int_cj_cross_access_barrier    : Intrinsic<[], [llvm_i64_ty]>;
 +def int_cj_get_exported_ref        : Intrinsic<[llvm_gcptr_ty],
 +                                                [llvm_i64_ty]>;
@@ -20908,7 +20918,7 @@ index d46fa4fbf..6a5019003 100644
 +                                                           [llvm_anyint_ty, llvm_anyint_ty],
 +                                                           [Throws]>;
 +def int_cj_acquire_rawdata                     : Intrinsic<[llvm_ptr_ty],
-+                                                           [llvm_gcptr_ty, llvm_i64_ty]>;
++                                                           [llvm_gcptr_ty, llvm_ptr_ty]>;
 +def int_cj_release_rawdata                     : Intrinsic<[],
 +                                                           [llvm_gcptr_ty, llvm_ptr_ty, llvm_i32_ty]>;
 +def int_cj_post_throw_exception                : Intrinsic<[llvm_gcptr_ty],
@@ -20924,25 +20934,25 @@ index d46fa4fbf..6a5019003 100644
 +                                                           [llvm_ptr_ty]>;
 +def int_cj_fill_in_stack_trace                 : Intrinsic<[llvm_gcptr_ty],
 +                                                           [llvm_ptr_ty, llvm_gcptr_ty]>;
-+def int_cj_get_real_heap_size                  : Intrinsic<[llvm_i64_ty],
++def int_cj_get_real_heap_size                  : Intrinsic<[llvm_anyint_ty],
 +                                                           []>;
-+def int_cj_get_allocated_heap_size             : Intrinsic<[llvm_i64_ty],
++def int_cj_get_allocated_heap_size             : Intrinsic<[llvm_anyint_ty],
 +                                                           []>;
-+def int_cj_get_max_heap_size                   : Intrinsic<[llvm_i64_ty],
++def int_cj_get_max_heap_size                   : Intrinsic<[llvm_anyint_ty],
 +                                                           []>;
 +def int_cj_dump_heap_data                      : Intrinsic<[llvm_i1_ty],
 +                                                           [llvm_i32_ty]>;
-+def int_cj_get_thread_number                   : Intrinsic<[llvm_i64_ty],
++def int_cj_get_thread_number                   : Intrinsic<[llvm_anyint_ty],
 +                                                           []>;
-+def int_cj_get_blocking_thread_number          : Intrinsic<[llvm_i64_ty],
++def int_cj_get_blocking_thread_number          : Intrinsic<[llvm_anyint_ty],
 +                                                           []>;
-+def int_cj_get_native_thread_number            : Intrinsic<[llvm_i64_ty],
++def int_cj_get_native_thread_number            : Intrinsic<[llvm_anyint_ty],
 +                                                           []>;
-+def int_cj_get_gc_count                        : Intrinsic<[llvm_i64_ty],
++def int_cj_get_gc_count                        : Intrinsic<[llvm_anyint_ty],
 +                                                           []>;
 +def int_cj_get_gc_time_us                      : Intrinsic<[llvm_i64_ty],
 +                                                           []>;
-+def int_cj_get_gc_freed_size                   : Intrinsic<[llvm_i64_ty],
++def int_cj_get_gc_freed_size                   : Intrinsic<[llvm_anyint_ty],
 +                                                           []>;
 +def int_cj_start_cpu_profiling                 : Intrinsic<[llvm_i1_ty],
 +                                                           []>;
@@ -21022,7 +21032,7 @@ index d46fa4fbf..6a5019003 100644
 +                                                [llvm_ptr_ty, llvm_i64_ty],
 +                                                [Throws]>;
 +def int_cj_array_copy_generic       : Intrinsic<[],
-+                                                [llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_i64_ty]>;
++                                                [llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_gcptr_ty, llvm_anyint_ty]>;
 +def int_cj_gcwrite_generic_payload  : Intrinsic<[],
 +                                                [llvm_gcptr_ty, llvm_ptr_ty, llvm_i32_ty]>;
 +
@@ -26544,7 +26554,7 @@ index 5ecdf5af9..99f246d58 100644
 +LLVMBuildGenerateCFragment(OUTPUT ${LLVMCONFIGLIBRARYDEPENDENCIESINC})
 \ No newline at end of file
 diff --git a/llvm/lib/CodeGen/AsmPrinter/AsmPrinter.cpp b/llvm/lib/CodeGen/AsmPrinter/AsmPrinter.cpp
-index 32a10ad41..1b18a3015 100644
+index 32a10ad41..75d3d2e57 100644
 --- a/llvm/lib/CodeGen/AsmPrinter/AsmPrinter.cpp
 +++ b/llvm/lib/CodeGen/AsmPrinter/AsmPrinter.cpp
 @@ -37,6 +37,7 @@
@@ -26707,7 +26717,15 @@ index 32a10ad41..1b18a3015 100644
  
        if (isVerbose())
          emitComments(MI, OutStreamer->getCommentOS());
-@@ -1620,6 +1697,37 @@ void AsmPrinter::emitFunctionBody() {
+@@ -1588,6 +1665,7 @@ void AsmPrinter::emitFunctionBody() {
+       }
+     }
+     emitBasicBlockEnd(MBB);
++    emitCangjieCustomInst();
+ 
+     if (CanDoExtraAnalysis) {
+       // Skip empty blocks.
+@@ -1620,6 +1698,37 @@ void AsmPrinter::emitFunctionBody() {
      }
    }
  
@@ -26745,7 +26763,7 @@ index 32a10ad41..1b18a3015 100644
    EmittedInsts += NumInstsInFunction;
    MachineOptimizationRemarkAnalysis R(DEBUG_TYPE, "InstructionCount",
                                        MF->getFunction().getSubprogram(),
-@@ -1944,8 +2052,11 @@ bool AsmPrinter::doFinalization(Module &M) {
+@@ -1944,8 +2053,11 @@ bool AsmPrinter::doFinalization(Module &M) {
    computeGlobalGOTEquivs(M);
  
    // Emit global variables.
@@ -26759,7 +26777,7 @@ index 32a10ad41..1b18a3015 100644
  
    // Emit remaining GOT equivalent globals.
    emitGlobalGOTEquivs();
-@@ -2135,7 +2246,8 @@ bool AsmPrinter::doFinalization(Module &M) {
+@@ -2135,7 +2247,8 @@ bool AsmPrinter::doFinalization(Module &M) {
      for (const GlobalValue &GV : M.global_values()) {
        if (!GV.use_empty() && !GV.isTransitiveUsedByMetadataOnly() &&
            !GV.isThreadLocal() && !GV.hasDLLImportStorageClass() &&
@@ -26769,7 +26787,7 @@ index 32a10ad41..1b18a3015 100644
          OutStreamer->emitAddrsigSym(getSymbol(&GV));
      }
    }
-@@ -2217,11 +2329,13 @@ void AsmPrinter::SetupMachineFunction(MachineFunction &MF) {
+@@ -2217,11 +2330,13 @@ void AsmPrinter::SetupMachineFunction(MachineFunction &MF) {
    MBBSectionRanges.clear();
    MBBSectionExceptionSyms.clear();
    bool NeedsLocalForSize = MAI->needsLocalForSize();
@@ -26784,7 +26802,7 @@ index 32a10ad41..1b18a3015 100644
      CurrentFnBegin = createTempSymbol("func_begin");
      if (NeedsLocalForSize)
        CurrentFnSymForSize = CurrentFnBegin;
-@@ -2861,7 +2975,9 @@ static void emitGlobalConstantImpl(const DataLayout &DL, const Constant *C,
+@@ -2861,7 +2976,9 @@ static void emitGlobalConstantImpl(const DataLayout &DL, const Constant *C,
                                     AsmPrinter &AP,
                                     const Constant *BaseCV = nullptr,
                                     uint64_t Offset = 0,
@@ -26795,7 +26813,7 @@ index 32a10ad41..1b18a3015 100644
  
  static void emitGlobalConstantFP(const ConstantFP *CFP, AsmPrinter &AP);
  static void emitGlobalConstantFP(APFloat APF, Type *ET, AsmPrinter &AP);
-@@ -3033,7 +3149,8 @@ static void emitGlobalConstantVector(const DataLayout &DL,
+@@ -3033,7 +3150,8 @@ static void emitGlobalConstantVector(const DataLayout &DL,
  static void emitGlobalConstantStruct(const DataLayout &DL,
                                       const ConstantStruct *CS, AsmPrinter &AP,
                                       const Constant *BaseCV, uint64_t Offset,
@@ -26805,7 +26823,7 @@ index 32a10ad41..1b18a3015 100644
    // Print the fields in successive locations. Pad to align if needed!
    unsigned Size = DL.getTypeAllocSize(CS->getType());
    const StructLayout *Layout = DL.getStructLayout(CS->getType());
-@@ -3043,7 +3160,7 @@ static void emitGlobalConstantStruct(const DataLayout &DL,
+@@ -3043,7 +3161,7 @@ static void emitGlobalConstantStruct(const DataLayout &DL,
  
      // Print the actual field value.
      emitGlobalConstantImpl(DL, Field, AP, BaseCV, Offset + SizeSoFar,
@@ -26814,7 +26832,7 @@ index 32a10ad41..1b18a3015 100644
  
      // Check if padding is needed and insert one or more 0s.
      uint64_t FieldSize = DL.getTypeAllocSize(Field->getType());
-@@ -3257,10 +3374,53 @@ static void handleIndirectSymViaGOTPCRel(AsmPrinter &AP, const MCExpr **ME,
+@@ -3257,10 +3375,53 @@ static void handleIndirectSymViaGOTPCRel(AsmPrinter &AP, const MCExpr **ME,
      AP.GlobalGOTEquivs[GOTEquivSym] = std::make_pair(GV, NumUses);
  }
  
@@ -26869,7 +26887,7 @@ index 32a10ad41..1b18a3015 100644
    emitGlobalAliasInline(AP, Offset, AliasList);
    uint64_t Size = DL.getTypeAllocSize(CV->getType());
  
-@@ -3307,13 +3467,14 @@ static void emitGlobalConstantImpl(const DataLayout &DL, const Constant *CV,
+@@ -3307,13 +3468,14 @@ static void emitGlobalConstantImpl(const DataLayout &DL, const Constant *CV,
      return emitGlobalConstantArray(DL, CVA, AP, BaseCV, Offset, AliasList);
  
    if (const ConstantStruct *CVS = dyn_cast<ConstantStruct>(CV))
@@ -26886,7 +26904,7 @@ index 32a10ad41..1b18a3015 100644
  
      if (Size > 8) {
        // If the constant expression's size is greater than 64-bits, then we have
-@@ -3338,15 +3499,51 @@ static void emitGlobalConstantImpl(const DataLayout &DL, const Constant *CV,
+@@ -3338,15 +3500,51 @@ static void emitGlobalConstantImpl(const DataLayout &DL, const Constant *CV,
    if (AP.getObjFileLowering().supportIndirectSymViaGOTPCRel())
      handleIndirectSymViaGOTPCRel(AP, &ME, BaseCV, Offset);
  
@@ -26940,7 +26958,7 @@ index 32a10ad41..1b18a3015 100644
    else if (MAI->hasSubsectionsViaSymbols()) {
      // If the global has zero size, emit a single byte so that two labels don't
      // look like they are at the same location.
-@@ -3728,6 +3925,11 @@ void AsmPrinter::emitStackMaps(StackMaps &SM) {
+@@ -3728,6 +3926,11 @@ void AsmPrinter::emitStackMaps(StackMaps &SM) {
      SM.serializeToStackMapSection();
  }
  
@@ -26952,7 +26970,7 @@ index 32a10ad41..1b18a3015 100644
  /// Pin vtable to this file.
  AsmPrinterHandler::~AsmPrinterHandler() = default;
  
-@@ -3901,3 +4103,112 @@ unsigned int AsmPrinter::getUnitLengthFieldByteSize() const {
+@@ -3901,3 +4104,112 @@ unsigned int AsmPrinter::getUnitLengthFieldByteSize() const {
    return dwarf::getUnitLengthFieldByteSize(
        OutStreamer->getContext().getDwarfFormat());
  }
@@ -27243,10 +27261,10 @@ index 31644959b..773166df5 100644
  void EHStreamer::emitTypeInfos(unsigned TTypeEncoding, MCSymbol *TTBaseLabel) {
 diff --git a/llvm/lib/CodeGen/CJBarrierLowering.cpp b/llvm/lib/CodeGen/CJBarrierLowering.cpp
 new file mode 100644
-index 000000000..356fe6c98
+index 000000000..b3ea0df0a
 --- /dev/null
 +++ b/llvm/lib/CodeGen/CJBarrierLowering.cpp
-@@ -0,0 +1,1127 @@
+@@ -0,0 +1,1144 @@
 +//===-- GCBarrierLowering.cpp - Cangjie Barrier Lowering ------------------===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -27373,6 +27391,7 @@ index 000000000..356fe6c98
 +    GCPtr = Type::getInt8PtrTy(C, 1);
 +    I8Ptr = Type::getInt8PtrTy(C);
 +    I64 = Type::getInt64Ty(C);
++    I32 = Type::getInt32Ty(C);
 +  }
 +
 +  ~BarrierMaker() = default;
@@ -27448,6 +27467,7 @@ index 000000000..356fe6c98
 +  Type *GCPtr;
 +  Type *I8Ptr;
 +  Type *I64;
++  Type *I32;
 +
 +  StringRef getRuntimeFuncName(IntrinsicInst *II) {
 +    Intrinsic::ID IID = II->getIntrinsicID();
@@ -27464,15 +27484,21 @@ index 000000000..356fe6c98
 +      return Itr->second;
 +    // add dstLen to runtime API
 +    FunctionType *FuncType = nullptr;
++    const Triple TT(II->getModule()->getTargetTriple());
++    auto isARM = TT.isARM();
 +    switch (II->getIntrinsicID()) {
 +    case Intrinsic::cj_gcwrite_struct: {
 +      Type *ParamType[5] = {GCPtr, GCPtr, I64, GCPtr, I64};
++      if (isARM)
++        ParamType[2] = ParamType[4] = I32;
 +      FuncType = FunctionType::get(Type::getVoidTy(C), ParamType, false);
 +      break;
 +    }
 +    case Intrinsic::cj_gcread_static_struct:
 +    case Intrinsic::cj_gcwrite_static_struct: {
 +      Type *ParamType[5] = {I8Ptr, I64, I8Ptr, I64, I8Ptr};
++      if (isARM)
++        ParamType[1] = ParamType[3] = I32;
 +      FuncType = FunctionType::get(Type::getVoidTy(C), ParamType, false);
 +      break;
 +    }
@@ -27480,6 +27506,8 @@ index 000000000..356fe6c98
 +    case Intrinsic::cj_array_copy_struct:
 +    case Intrinsic::cj_array_copy_generic: {
 +      Type *ParamType[6] = {GCPtr, GCPtr, I64, GCPtr, GCPtr, I64};
++      if (isARM)
++        ParamType[2] = ParamType[5] = I32;
 +      FuncType = FunctionType::get(Type::getVoidTy(C), ParamType, false);
 +      break;
 +    }
@@ -28346,6 +28374,13 @@ index 000000000..356fe6c98
 +  if (!F.hasCangjieGC())
 +    return false;
 +
++  const Triple TT(F.getParent()->getTargetTriple());
++  if (TT.isARM()){
++    EnableTaggedPointer = false;
++    EnableGCPhase = false;
++    EnableGCFastPath = false;
++  }
++
 +  bool Changed = false;
 +  SetVector<CallInst *> Barriers;
 +  SetVector<GCStatepointInst *> News;
@@ -28376,10 +28411,10 @@ index 000000000..356fe6c98
 +}
 diff --git a/llvm/lib/CodeGen/CJMetadata.cpp b/llvm/lib/CodeGen/CJMetadata.cpp
 new file mode 100644
-index 000000000..69cb85c18
+index 000000000..2a332d9b1
 --- /dev/null
 +++ b/llvm/lib/CodeGen/CJMetadata.cpp
-@@ -0,0 +1,851 @@
+@@ -0,0 +1,860 @@
 +//===- CJMetadata.cpp - Self-Defined CJMetadata Section ----------*- C++-*-===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -28488,6 +28523,7 @@ index 000000000..69cb85c18
 +  SplitedMangledStr.Items.clear();
 +  StrPoolDictOffsetsSym = Context.getOrCreateSymbol(".Lstr_pool_dict_offsets");
 +  StrPoolIdx = 0;
++  FuncPtrSize = SM.isARM() ? 4 : 8; // method pc size, arm: 4 byte, other: 8 byte
 +}
 +
 +void CJMetadataInfo::recordKlass(const GlobalVariable *GV) {
@@ -28966,8 +29002,13 @@ index 000000000..69cb85c18
 +    return;
 +
 +  OS.switchSection(TD[GCRootsTableIdx].TableSection);
++
++  if (TT.isOSBinFormatMachO())
++    // 8: align size, 8 bytes
++    OS.emitValueToAlignment(8);
++
 +  for (const auto GCRoot : GCRootTable) {
-+    OS.emitValue(GCRoot, 8);
++    OS.emitValue(GCRoot, FuncPtrSize);
 +  }
 +}
 +
@@ -29101,8 +29142,7 @@ index 000000000..69cb85c18
 +    if (FuncName != GlobalInitFuncName)
 +      return;
 +
-+    // 8: method pc size, 8 bytes
-+    OS.emitSymbolValue(FuncBegin, 8);
++    OS.emitSymbolValue(FuncBegin, FuncPtrSize);
 +    if (IsMachO) {
 +      FuncName.push_back('\0');
 +      OS.emitBytes(FuncName);
@@ -29123,8 +29163,12 @@ index 000000000..69cb85c18
 +    return;
 +
 +  OS.switchSection(TD[SDKVersionIdx].TableSection);
-+  // 8: sdk version size, 8 bytes.
-+  OS.emitValue(getGVRefSymbol(Version), 8);
++
++  if (TT.isOSBinFormatMachO())
++    // 8: align size, 8 bytes
++    OS.emitValueToAlignment(8);
++
++  OS.emitValue(getGVRefSymbol(Version), FuncPtrSize);
 +}
 +
 +void CJMetadataInfo::emitStackMaps() {
@@ -30218,10 +30262,18 @@ index 689fa9651..1868e405b 100644
    TwoAddressInstructionPass.cpp
    UnreachableBlockElim.cpp
 diff --git a/llvm/lib/CodeGen/CallingConvLower.cpp b/llvm/lib/CodeGen/CallingConvLower.cpp
-index f74ff30ab..56ffcd929 100644
+index f74ff30ab..c230e58fe 100644
 --- a/llvm/lib/CodeGen/CallingConvLower.cpp
 +++ b/llvm/lib/CodeGen/CallingConvLower.cpp
-@@ -76,6 +76,40 @@ bool CCState::IsShadowAllocatedReg(MCRegister Reg) const {
+@@ -17,6 +17,7 @@
+ #include "llvm/CodeGen/TargetLowering.h"
+ #include "llvm/CodeGen/TargetRegisterInfo.h"
+ #include "llvm/CodeGen/TargetSubtargetInfo.h"
++#include "llvm/IR/Module.h"
+ #include "llvm/MC/MCRegisterInfo.h"
+ #include "llvm/Support/Debug.h"
+ #include "llvm/Support/ErrorHandling.h"
+@@ -76,6 +77,43 @@ bool CCState::IsShadowAllocatedReg(MCRegister Reg) const {
    return true;
  }
  
@@ -30250,7 +30302,10 @@ index f74ff30ab..56ffcd929 100644
 +    Func->eraseMetadata(Ctx.getMDKindID(MetaName));
 +  }
 +  // MCC_XXXStub require CallFrameSize to be 16 bytes align
-+  CallFrameSize = alignTo(CallFrameSize, 16);
++  const Triple TT(Func->getParent()->getTargetTriple());
++  CallFrameSize =
++      TT.isARM() ? alignTo(CallFrameSize, 8) : alignTo(CallFrameSize, 16);
++
 +  MDNode *CallFrameSizeMD =
 +      MDTuple::get(Ctx, ValueAsMetadata::getConstant(ConstantInt::get(
 +                            Type::getInt64Ty(Ctx), CallFrameSize)));
@@ -30784,7 +30839,7 @@ index 46ad1de78..cb4fd29b2 100644
      StringRef Name = getSymbolName();
      OS << '&';
 diff --git a/llvm/lib/CodeGen/PrologEpilogInserter.cpp b/llvm/lib/CodeGen/PrologEpilogInserter.cpp
-index 85d051cfd..e13fe39ca 100644
+index 85d051cfd..c40058d91 100644
 --- a/llvm/lib/CodeGen/PrologEpilogInserter.cpp
 +++ b/llvm/lib/CodeGen/PrologEpilogInserter.cpp
 @@ -71,13 +71,20 @@
@@ -30875,7 +30930,28 @@ index 85d051cfd..e13fe39ca 100644
    ORE->emit([&]() {
      return MachineOptimizationRemarkAnalysis(DEBUG_TYPE, "StackSize",
                                               MF.getFunction().getSubprogram(),
-@@ -1416,8 +1440,12 @@ void PEI::replaceFrameIndices(MachineBasicBlock *BB, MachineFunction &MF,
+@@ -475,6 +499,20 @@ static void assignCalleeSavedSpillSlots(MachineFunction &F,
+       }
+ 
+       CS.setFrameIdx(FrameIdx);
++
++      if (F.getFunction().hasCangjieGC() &&
++          F.getTarget().getTargetTriple().isARM() &&
++          Reg == RegInfo->getFrameRegister(F)) {
++        assert(Reg == CSI[1].getReg());
++        // 4: reg size
++        FrameIdx = MFI.CreateStackObject(4, Align(4), true);
++        // It ensures that the stack object is placed below the callee-saved
++        // area.
++        if ((unsigned)FrameIdx < MinCSFrameIndex)
++          MinCSFrameIndex = FrameIdx;
++        if ((unsigned)FrameIdx > MaxCSFrameIndex)
++          MaxCSFrameIndex = FrameIdx;
++      }
+     }
+   }
+ 
+@@ -1416,8 +1454,12 @@ void PEI::replaceFrameIndices(MachineBasicBlock *BB, MachineFunction &MF,
                 "DBG_VALUE machine instruction");
          Register Reg;
          MachineOperand &Offset = MI.getOperand(i + 1);
@@ -31371,7 +31447,7 @@ index d46a0a23c..2d3908b11 100644
              !isa<GCRelocateInst>(Inst) && !isa<GCResultInst>(Inst)) {
            OptimizationRemarkMissed R("sdagisel", "FastISelFailure",
 diff --git a/llvm/lib/CodeGen/SelectionDAG/StatepointLowering.cpp b/llvm/lib/CodeGen/SelectionDAG/StatepointLowering.cpp
-index c5c093ae2..26326ce5d 100644
+index c5c093ae2..1c9a6aa23 100644
 --- a/llvm/lib/CodeGen/SelectionDAG/StatepointLowering.cpp
 +++ b/llvm/lib/CodeGen/SelectionDAG/StatepointLowering.cpp
 @@ -55,7 +55,12 @@
@@ -31439,7 +31515,7 @@ index c5c093ae2..26326ce5d 100644
  
    assert(CallEnd->getOpcode() == ISD::CALLSEQ_END && "expected!");
    return std::make_pair(ReturnValue, CallEnd->getOperand(0).getNode());
-@@ -418,6 +435,26 @@ spillIncomingStatepointValue(SDValue Incoming, SDValue Chain,
+@@ -418,6 +435,28 @@ spillIncomingStatepointValue(SDValue Incoming, SDValue Chain,
    return std::make_tuple(Loc, Chain, MMO);
  }
  
@@ -31457,16 +31533,18 @@ index c5c093ae2..26326ce5d 100644
 +    assert(AllocaPtrsIndexMap.count(PtrSD) && "struct not found in index map");
 +    const DataLayout &DL = Builder.DAG.getDataLayout();
 +    APInt Offsets(DL.getIndexSizeInBits(0), P.second, true);
++    auto VT =
++        Builder.DAG.getTarget().getTargetTriple().isARM() ? MVT::i32 : MVT::i64;
 +    Ops.push_back(
-+        Builder.DAG.getTargetConstant(AllocaPtrsIndexMap[PtrSD], L, MVT::i64));
-+    Ops.push_back(Builder.DAG.getTargetConstant(Offsets, L, MVT::i64));
++        Builder.DAG.getTargetConstant(AllocaPtrsIndexMap[PtrSD], L, VT));
++    Ops.push_back(Builder.DAG.getTargetConstant(Offsets, L, VT));
 +  }
 +}
 +
  /// Lower a single value incoming to a statepoint node.  This value can be
  /// either a deopt value or a gc value, the handling is the same.  We special
  /// case constants and allocas, then fall back to spilling if required.
-@@ -426,7 +463,6 @@ lowerIncomingStatepointValue(SDValue Incoming, bool RequireSpillSlot,
+@@ -426,7 +465,6 @@ lowerIncomingStatepointValue(SDValue Incoming, bool RequireSpillSlot,
                               SmallVectorImpl<SDValue> &Ops,
                               SmallVectorImpl<MachineMemOperand *> &MemRefs,
                               SelectionDAGBuilder &Builder) {
@@ -31474,7 +31552,7 @@ index c5c093ae2..26326ce5d 100644
    if (willLowerDirectly(Incoming)) {
      if (FrameIndexSDNode *FI = dyn_cast<FrameIndexSDNode>(Incoming)) {
        // This handles allocas as arguments to the statepoint (this is only
-@@ -470,8 +506,6 @@ lowerIncomingStatepointValue(SDValue Incoming, bool RequireSpillSlot,
+@@ -470,8 +508,6 @@ lowerIncomingStatepointValue(SDValue Incoming, bool RequireSpillSlot,
      llvm_unreachable("unhandled direct lowering case");
    }
  
@@ -31483,7 +31561,7 @@ index c5c093ae2..26326ce5d 100644
    if (!RequireSpillSlot) {
      // If this value is live in (not live-on-return, or live-through), we can
      // treat it the same way patchpoint treats it's "live in" values.  We'll
-@@ -495,9 +529,39 @@ lowerIncomingStatepointValue(SDValue Incoming, bool RequireSpillSlot,
+@@ -495,9 +531,39 @@ lowerIncomingStatepointValue(SDValue Incoming, bool RequireSpillSlot,
      Chain = std::get<1>(Res);;
      Builder.DAG.setRoot(Chain);
    }
@@ -31523,7 +31601,7 @@ index c5c093ae2..26326ce5d 100644
  /// Return true if value V represents the GC value. The behavior is conservative
  /// in case it is not sure that value is not GC the function returns true.
  static bool isGCValue(const Value *V, SelectionDAGBuilder &Builder) {
-@@ -527,6 +591,7 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
+@@ -527,6 +593,7 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
    // Lower the deopt and gc arguments for this statepoint.  Layout will be:
    // deopt argument length, deopt arguments.., gc arguments...
  #ifndef NDEBUG
@@ -31531,7 +31609,7 @@ index c5c093ae2..26326ce5d 100644
    if (auto *GFI = Builder.GFI) {
      // Check that each of the gc pointer and bases we've gotten out of the
      // safepoint is something the strategy thinks might be a pointer (or vector
-@@ -555,6 +620,17 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
+@@ -555,6 +622,17 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
    }
  #endif
  
@@ -31549,7 +31627,7 @@ index c5c093ae2..26326ce5d 100644
    // Figure out what lowering strategy we're going to use for each part
    // Note: Is is conservatively correct to lower both "live-in" and "live-out"
    // as "live-through". A "live-through" variable is one which is "live-in",
-@@ -591,6 +667,8 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
+@@ -591,6 +669,8 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
    SmallSetVector<SDValue, 16> LoweredGCPtrs;
    // Map lowered GC Pointer value to the index in above vector
    DenseMap<SDValue, unsigned> GCPtrIndexMap;
@@ -31558,7 +31636,7 @@ index c5c093ae2..26326ce5d 100644
  
    unsigned CurNumVRegs = 0;
  
-@@ -692,8 +770,32 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
+@@ -692,8 +772,32 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
      lowerIncomingStatepointValue(SDV, !LowerAsVReg.count(SDV), Ops, MemRefs,
                                   Builder);
  
@@ -31593,7 +31671,7 @@ index c5c093ae2..26326ce5d 100644
  
    // If there are any explicit spill slots passed to the statepoint, record
    // them, but otherwise do not do anything special.  These are user provided
-@@ -701,11 +803,10 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
+@@ -701,11 +805,10 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
    // it is the contents of the slot which may get updated, not the pointer to
    // the alloca
    SmallVector<SDValue, 4> Allocas;
@@ -31608,7 +31686,7 @@ index c5c093ae2..26326ce5d 100644
               "Incoming value is a frame index!");
        Allocas.push_back(Builder.DAG.getTargetFrameIndex(
            FI->getIndex(), Builder.getFrameIndexTy()));
-@@ -714,7 +815,22 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
+@@ -714,7 +817,22 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
        auto *MMO = getMachineMemOperand(MF, *FI);
        MemRefs.push_back(MMO);
      }
@@ -31631,7 +31709,7 @@ index c5c093ae2..26326ce5d 100644
    pushStackMapConstant(Ops, Builder, Allocas.size());
    Ops.append(Allocas.begin(), Allocas.end());
  
-@@ -731,6 +847,47 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
+@@ -731,6 +849,47 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
      Ops.push_back(
          Builder.DAG.getTargetConstant(GCPtrIndexMap[Derived], L, MVT::i64));
    }
@@ -31679,7 +31757,7 @@ index c5c093ae2..26326ce5d 100644
  }
  
  SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
-@@ -744,6 +901,11 @@ SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
+@@ -744,6 +903,11 @@ SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
    StatepointLowering.startNewStatepoint(*this);
    assert(SI.Bases.size() == SI.Ptrs.size());
  
@@ -31691,7 +31769,7 @@ index c5c093ae2..26326ce5d 100644
    LLVM_DEBUG(dbgs() << "Lowering statepoint " << *SI.StatepointInstr << "\n");
  #ifndef NDEBUG
    for (const auto *Reloc : SI.GCRelocates)
-@@ -839,7 +1001,7 @@ SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
+@@ -839,7 +1003,7 @@ SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
    Ops.push_back(DAG.getTargetConstant(NumCallRegArgs, getCurSDLoc(), MVT::i32));
  
    // Add call target
@@ -31700,7 +31778,7 @@ index c5c093ae2..26326ce5d 100644
    Ops.push_back(CallTarget);
  
    // Add call arguments
-@@ -902,39 +1064,14 @@ SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
+@@ -902,39 +1066,14 @@ SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
        continue;
  
      SDValue Relocated = SDValue(StatepointMCNode, LowerAsVReg[SD]);
@@ -31742,7 +31820,7 @@ index c5c093ae2..26326ce5d 100644
      SDValue SDV = getValue(V);
      SDValue Loc = StatepointLowering.getLocation(SDV);
  
-@@ -961,9 +1098,11 @@ SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
+@@ -961,9 +1100,11 @@ SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
          ExportFromCurrentBlock(V);
      }
      RelocationMap[Relocate] = Record;
@@ -31756,7 +31834,7 @@ index c5c093ae2..26326ce5d 100644
  
    SDNode *SinkNode = StatepointMCNode;
  
-@@ -1050,7 +1189,7 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
+@@ -1050,7 +1191,7 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
  
    SDValue ActualCallee;
    SDValue Callee = getValue(I.getActualCalledOperand());
@@ -31765,7 +31843,7 @@ index c5c093ae2..26326ce5d 100644
    if (I.getNumPatchBytes() > 0) {
      // If we've been asked to emit a nop sequence instead of a call instruction
      // for this statepoint then don't lower the call target, but use a constant
-@@ -1060,13 +1199,19 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
+@@ -1060,13 +1201,19 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
      ActualCallee = DAG.getUNDEF(Callee.getValueType());
    } else {
      ActualCallee = Callee;
@@ -31786,7 +31864,7 @@ index c5c093ae2..26326ce5d 100644
    // There may be duplication in the gc.relocate list; such as two copies of
    // each relocation on normal and exceptional path for an invoke.  We only
    // need to spill once and record one copy in the stackmap, but we need to
-@@ -1085,6 +1230,14 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
+@@ -1085,6 +1232,14 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
      SI.GCRelocates.push_back(Relocate);
  
      SDValue DerivedSD = getValue(Relocate->getDerivedPtr());
@@ -31801,7 +31879,7 @@ index c5c093ae2..26326ce5d 100644
      if (Seen.insert(DerivedSD).second) {
        SI.Bases.push_back(Relocate->getBasePtr());
        SI.Ptrs.push_back(Relocate->getDerivedPtr());
-@@ -1107,6 +1260,8 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
+@@ -1107,6 +1262,8 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
    }
  
    SI.GCArgs = ArrayRef<const Use>(I.gc_args_begin(), I.gc_args_end());
@@ -31810,7 +31888,7 @@ index c5c093ae2..26326ce5d 100644
    SI.StatepointInstr = &I;
    SI.ID = I.getID();
  
-@@ -1118,12 +1273,21 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
+@@ -1118,12 +1275,21 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
    SI.NumPatchBytes = I.getNumPatchBytes();
    SI.EHPadBB = EHPadBB;
  
@@ -31834,7 +31912,7 @@ index c5c093ae2..26326ce5d 100644
      // The return value is not needed, just generate a poison value.
      // Note: This covers the void return case.
      setValue(&I, DAG.getIntPtrConstant(-1, getCurSDLoc()));
-@@ -1225,7 +1389,28 @@ void SelectionDAGBuilder::visitGCResult(const GCResultInst &CI) {
+@@ -1225,7 +1391,28 @@ void SelectionDAGBuilder::visitGCResult(const GCResultInst &CI) {
    setValue(&CI, CopyFromReg);
  }
  
@@ -31864,7 +31942,7 @@ index c5c093ae2..26326ce5d 100644
    const Value *Statepoint = Relocate.getStatepoint();
  #ifndef NDEBUG
    // Consistency check
-@@ -1237,15 +1422,23 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
+@@ -1237,15 +1424,23 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
    if (isa<UndefValue>(Statepoint))
      return;
  
@@ -31894,7 +31972,7 @@ index c5c093ae2..26326ce5d 100644
    auto &RelocationMap =
        FuncInfo.StatepointRelocationMaps[cast<GCStatepointInst>(Statepoint)];
    auto SlotIt = RelocationMap.find(&Relocate);
-@@ -1257,7 +1450,7 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
+@@ -1257,7 +1452,7 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
      assert(cast<GCStatepointInst>(Statepoint)->getParent() ==
                 Relocate.getParent() &&
             "Nonlocal gc.relocate mapped via SDValue");
@@ -31903,7 +31981,7 @@ index c5c093ae2..26326ce5d 100644
      assert(SDV.getNode() && "empty SDValue");
      setValue(&Relocate, SDV);
      return;
-@@ -1310,8 +1503,7 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
+@@ -1310,8 +1505,7 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
    }
  
    assert(Record.type == RecordType::NoRelocate);
@@ -31913,7 +31991,7 @@ index c5c093ae2..26326ce5d 100644
    if (SD.isUndef() && SD.getValueType().getSizeInBits() <= 64) {
      // Lowering relocate(undef) as arbitrary constant. Current constant value
      // is chosen such that it's unlikely to be a valid pointer.
-@@ -1321,7 +1513,14 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
+@@ -1321,7 +1515,14 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
  
    // We didn't need to spill these special cases (constants and allocas).
    // See the handling in spillIncomingValueForStatepoint for detail.
@@ -32039,7 +32117,7 @@ index 94149f56e..2e22299ea 100644
        // This block has uses. Find the first and last uses in the block.
        BI.FirstInstr = *UseI;
 diff --git a/llvm/lib/CodeGen/StackMaps.cpp b/llvm/lib/CodeGen/StackMaps.cpp
-index ccaff862f..a35dac4d9 100644
+index ccaff862f..6b82664a4 100644
 --- a/llvm/lib/CodeGen/StackMaps.cpp
 +++ b/llvm/lib/CodeGen/StackMaps.cpp
 @@ -11,14 +11,22 @@
@@ -32075,26 +32153,29 @@ index ccaff862f..a35dac4d9 100644
  #include <utility>
  
  using namespace llvm;
-@@ -43,8 +54,84 @@ static cl::opt<int> StackMapVersion(
+@@ -43,8 +54,114 @@ static cl::opt<int> StackMapVersion(
      "stackmap-version", cl::init(3), cl::Hidden,
      cl::desc("Specify the stackmap encoding version (default = 3)"));
  
+-const char *StackMaps::WSMP = "Stack Maps: ";
 +static cl::opt<bool> EnableCompressedBitMap(
 +    "enable-compressed-bitmap", cl::init(true), cl::Hidden,
 +    cl::desc("Enable Compressed BitMap"));
 +namespace llvm {
++// struct start address alignment
++int32_t OffsetStepSize = 8; 
+ 
 +extern cl::opt<bool> CJPipeline;
 +extern cl::opt<bool> EnableStackGrow;
 +} // namespace llvm
- const char *StackMaps::WSMP = "Stack Maps: ";
--
++const char *StackMaps::WSMP = "Stack Maps: ";
 +namespace {
 +enum CJStackMapFormat : uint64_t {
 +  CJ_STACKMAP_BITMAP = 0,
 +  CJ_STACKMAP_COMPRESSED_BITMAP = 1
 +};
 +const int32_t RawDataWidth = 31; // for compressed stack map
-+const int32_t OffsetStepSize = 8;
++
 +// unordered_map<regNo, bitIdx>, regNo can be used to find callee saved reg
 +// while bitIdx is used in prologue
 +const std::unordered_map<uint32_t, uint32_t> X86CalleeSavedReg = {
@@ -32157,11 +32238,38 @@ index ccaff862f..a35dac4d9 100644
 +    "x0",  "x1",  "x2",  "x3",  "x4",  "x5",  "x6",  "x7",  "x8",  "x9",  "x10",
 +    "x11", "x12", "x13", "x14", "x15", "x16", "x17", "x18", "x19", "x20", "x21",
 +    "x22", "x23", "x24", "x25", "x26", "x27", "x28", "x29", "x30", "x31"};
++const std::unordered_map<uint32_t, uint32_t> ARMCalleeSavedReg = {
++    // r4 - r11, r14
++    {4, 1 << 0},
++    {5, 1 << 1},
++    {6, 1 << 2},
++    {7, 1 << 3},
++    {8, 1 << 4},
++    {9, 1 << 5},
++    {10, 1 << 6},
++    {11, 1 << 7},
++    {14, 1 << 8},
++    // d8 - d15
++    {264, 1 << 9},
++    {265, 1 << 10},
++    {266, 1 << 11},
++    {267, 1 << 12},
++    {268, 1 << 13},
++    {269, 1 << 14},
++    {270, 1 << 15},
++    {271, 1 << 16},
++};
++const std::vector<std::string> ARMPrologueBit2Reg = {
++    "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r14(lr)",
++    "d8", "d9", "d10", "d11", "d12", "d13", "d14", "d15", };
++const std::vector<std::string> ARMBit2Reg = {
++    "r0",  "r1",  "r2",  "r3",  "r4",  "r5",  "r6",  "r7",  "r8",  "r9",  "r10",
++    "r11", "r12", "r13", "r14", "r15"};
 +} // namespace
  static uint64_t getConstMetaVal(const MachineInstr &MI, unsigned Idx) {
    assert(MI.getOperand(Idx).isImm() &&
           MI.getOperand(Idx).getImm() == StackMaps::ConstantOp);
-@@ -53,10 +140,8 @@ static uint64_t getConstMetaVal(const MachineInstr &MI, unsigned Idx) {
+@@ -53,10 +170,8 @@ static uint64_t getConstMetaVal(const MachineInstr &MI, unsigned Idx) {
    return MO.getImm();
  }
  
@@ -32174,7 +32282,7 @@ index ccaff862f..a35dac4d9 100644
  }
  
  PatchPointOpers::PatchPointOpers(const MachineInstr *MI)
-@@ -80,17 +165,34 @@ unsigned PatchPointOpers::getNextScratchIdx(unsigned StartIdx) const {
+@@ -80,17 +195,34 @@ unsigned PatchPointOpers::getNextScratchIdx(unsigned StartIdx) const {
  
    // Find the next scratch register (implicit def and early clobber)
    unsigned ScratchIdx = StartIdx, e = MI->getNumOperands();
@@ -32214,7 +32322,7 @@ index ccaff862f..a35dac4d9 100644
  unsigned StatepointOpers::getNumGcMapEntriesIdx() {
    // Take index of num of allocas and skip all allocas records.
    unsigned CurIdx = getNumAllocaIdx();
-@@ -132,6 +234,26 @@ int StatepointOpers::getFirstGCPtrIdx() {
+@@ -132,6 +264,26 @@ int StatepointOpers::getFirstGCPtrIdx() {
    return (int)NumGCPtrsIdx;
  }
  
@@ -32241,7 +32349,7 @@ index ccaff862f..a35dac4d9 100644
  unsigned StatepointOpers::getGCPointerMap(
      SmallVectorImpl<std::pair<unsigned, unsigned>> &GCMap) {
    unsigned CurIdx = getNumGcMapEntriesIdx();
-@@ -146,6 +268,32 @@ unsigned StatepointOpers::getGCPointerMap(
+@@ -146,6 +298,32 @@ unsigned StatepointOpers::getGCPointerMap(
    return GCMapSize;
  }
  
@@ -32274,7 +32382,7 @@ index ccaff862f..a35dac4d9 100644
  StackMaps::StackMaps(AsmPrinter &AP) : AP(AP) {
    if (StackMapVersion != 3)
      llvm_unreachable("Unsupported stackmap version!");
-@@ -159,8 +307,6 @@ unsigned StackMaps::getNextMetaArgIdx(const MachineInstr *MI, unsigned CurIdx) {
+@@ -159,8 +337,6 @@ unsigned StackMaps::getNextMetaArgIdx(const MachineInstr *MI, unsigned CurIdx) {
      default:
        llvm_unreachable("Unrecognized operand type.");
      case StackMaps::DirectMemRefOp:
@@ -32283,7 +32391,7 @@ index ccaff862f..a35dac4d9 100644
      case StackMaps::IndirectMemRefOp:
        CurIdx += 3;
        break;
-@@ -184,81 +330,254 @@ static unsigned getDwarfRegNum(unsigned Reg, const TargetRegisterInfo *TRI) {
+@@ -184,81 +360,254 @@ static unsigned getDwarfRegNum(unsigned Reg, const TargetRegisterInfo *TRI) {
    return (unsigned)RegNum;
  }
  
@@ -32493,7 +32601,7 @@ index ccaff862f..a35dac4d9 100644
 +    int64_t Size = (++MOI)->getImm();
 +    Register Reg = (++MOI)->getReg();
 +    int64_t Imm = (++MOI)->getImm();
-+    assert((Imm % OffsetStepSize == 0) && "Stack Offset should be 8 aligned!");
++    assert((Imm % OffsetStepSize == 0) && "Stack Offset align error!");
 +    Locations.emplace_back(StackMaps::Location::Indirect, Size,
 +                           getDwarfRegNum(Reg, TRI), Imm);
 +  } else if (MOI->getImm() == StackMaps::DirectMemRefOp) {
@@ -32501,7 +32609,7 @@ index ccaff862f..a35dac4d9 100644
 +    int64_t Imm = (++MOI)->getImm();
 +    int64_t FI = (++MOI)->getImm();
 +    (void)FI;
-+    assert((Imm % OffsetStepSize == 0) && "Stack Offset should be 8 aligned!");
++    assert((Imm % OffsetStepSize == 0) && "Stack Offset align error!");
 +    Locations.emplace_back(StackMaps::Location::Indirect, 8,
 +                           getDwarfRegNum(Reg, TRI), Imm); // 8: pointer size
 +  } else {
@@ -32531,8 +32639,8 @@ index ccaff862f..a35dac4d9 100644
 +  const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(MOI->getReg());
 +  assert(!MOI->getSubReg() && "Physical subreg still around.");
 +
-+  // 15, 31: max general regNum of ref for x86_64 and aarch64
-+  unsigned MaxRegIdx = isX86_64() ? 15 : 31;
++  // 15, 31: max general regNum of ref, x86_64:15 , aarch64:31 and arm:15
++  unsigned MaxRegIdx = isAArch64() ? 31 : 15;
 +  unsigned Offset = 0;
 +  unsigned DwarfRegNum = getDwarfRegNum(MOI->getReg(), TRI);
 +  unsigned LLVMRegNum = *TRI->getLLVMRegNum(DwarfRegNum, false);
@@ -32597,7 +32705,7 @@ index ccaff862f..a35dac4d9 100644
  
    return ++MOI;
  }
-@@ -383,26 +702,123 @@ StackMaps::parseRegisterLiveOutMask(const uint32_t *Mask) const {
+@@ -383,26 +732,123 @@ StackMaps::parseRegisterLiveOutMask(const uint32_t *Mask) const {
    return LiveOuts;
  }
  
@@ -32729,7 +32837,7 @@ index ccaff862f..a35dac4d9 100644
  
    // Record gc base/derived pairs
    assert(MOI->isImm() && MOI->getImm() == StackMaps::ConstantOp);
-@@ -410,9 +826,10 @@ void StackMaps::parseStatepointOpers(const MachineInstr &MI,
+@@ -410,9 +856,10 @@ void StackMaps::parseStatepointOpers(const MachineInstr &MI,
    assert(MOI->isImm());
    unsigned NumGCPointers = MOI->getImm();
    ++MOI;
@@ -32742,7 +32850,7 @@ index ccaff862f..a35dac4d9 100644
      unsigned GCPtrIdx = (unsigned)SO.getFirstGCPtrIdx();
      assert((int)GCPtrIdx != -1);
      assert(MOI - MI.operands_begin() == GCPtrIdx + 0LL);
-@@ -435,8 +852,8 @@ void StackMaps::parseStatepointOpers(const MachineInstr &MI,
+@@ -435,8 +882,8 @@ void StackMaps::parseStatepointOpers(const MachineInstr &MI,
        unsigned DerivedIdx = GCPtrIndices[P.second];
        LLVM_DEBUG(dbgs() << "Base : " << BaseIdx << " Derived : " << DerivedIdx
                          << "\n");
@@ -32753,7 +32861,7 @@ index ccaff862f..a35dac4d9 100644
      }
  
      MOI = MOB + GCPtrIdx;
-@@ -448,37 +865,37 @@ void StackMaps::parseStatepointOpers(const MachineInstr &MI,
+@@ -448,37 +895,37 @@ void StackMaps::parseStatepointOpers(const MachineInstr &MI,
    ++MOI;
    unsigned NumAllocas = MOI->getImm();
    ++MOI;
@@ -32810,7 +32918,7 @@ index ccaff862f..a35dac4d9 100644
      // Constants are encoded as sign-extended integers.
      // -1 is directly encoded as .long 0xFFFFFFFF with no constant pool.
      if (Loc.Type == Location::Constant && !isInt<32>(Loc.Offset)) {
-@@ -497,68 +914,92 @@ void StackMaps::recordStackMapOpers(const MCSymbol &MILabel,
+@@ -497,68 +944,92 @@ void StackMaps::recordStackMapOpers(const MCSymbol &MILabel,
        Loc.Offset = Result.first - ConstPool.begin();
      }
    }
@@ -32939,7 +33047,7 @@ index ccaff862f..a35dac4d9 100644
  }
  
  /// Emit the stackmap header.
-@@ -680,7 +1121,7 @@ void StackMaps::emitCallsiteEntries(MCStreamer &OS) {
+@@ -680,7 +1151,7 @@ void StackMaps::emitCallsiteEntries(MCStreamer &OS) {
  
      for (const auto &Loc : CSLocs) {
        OS.emitIntValue(Loc.Type, 1);
@@ -32948,7 +33056,7 @@ index ccaff862f..a35dac4d9 100644
        OS.emitInt16(Loc.Size);
        OS.emitInt16(Loc.Reg);
        OS.emitInt16(0); // Reserved
-@@ -738,3 +1179,721 @@ void StackMaps::serializeToStackMapSection() {
+@@ -738,3 +1209,723 @@ void StackMaps::serializeToStackMapSection() {
    CSInfos.clear();
    ConstPool.clear();
  }
@@ -32979,15 +33087,16 @@ index ccaff862f..a35dac4d9 100644
 +  unsigned CSIdxEnd = 0;
 +  const Triple TT(AP.MMI->getModule()->getTargetTriple());
 +  bool IsWindows = TT.isOSWindows();
++  OffsetStepSize = TT.isARM() ? 4 : 8;
 +  for (auto const &FR : FnInfos) {
 +    MCSymbol *StackmapFunction =
 +        OutContext.getOrCreateSymbol(".Lstack_map." + FR.first->getName());
 +    OS.emitLabel(StackmapFunction);
 +    CSIdxEnd = CSIdxStart + FR.second.RecordCount;
 +    CompressedInfo Data(
-+        (IsWindows && isX86_64())
-+            ? X86WinCalleeSavedReg
-+            : (isX86_64() ? X86CalleeSavedReg : AArch64CalleeSavedReg));
++        (IsWindows && isX86_64()) ? X86WinCalleeSavedReg
++            : isX86_64() ? X86CalleeSavedReg 
++            : isAArch64() ? AArch64CalleeSavedReg : ARMCalleeSavedReg);
 +    prepareCompressedData(Data, FR.second, CSIdxStart, CSIdxEnd);
 +    emitCangjieCompressedData(OS, Data);
 +    CSIdxStart = CSIdxEnd;
@@ -33328,10 +33437,11 @@ index ccaff862f..a35dac4d9 100644
 +  bool IsWindows = TT.isOSWindows();
 +  DataEncoder Writer(
 +      OS, Data,
-+      (IsWindows && isX86_64())
-+          ? X86WinPrologueBit2Reg
-+          : (isX86_64() ? X86PrologueBit2Reg : AArch64PrologueBit2Reg),
-+      isX86_64() ? X86Bit2Reg : AArch64Bit2Reg);
++      ((IsWindows && isX86_64()) ? X86WinPrologueBit2Reg
++          : isX86_64() ? X86PrologueBit2Reg 
++          : isAArch64() ? AArch64PrologueBit2Reg : ARMPrologueBit2Reg),
++      (isX86_64() ? X86Bit2Reg 
++          : isAArch64() ? AArch64Bit2Reg : ARMBit2Reg));
 +  Writer.emitPrologueAndStackMapItemHeader();
 +  // emit PC breaks the consistency of the emit buffer
 +  Writer.emitStackMapItem();
@@ -34777,10 +34887,10 @@ index 000000000..be12ae6d3
 +} // namespace cangjie
 diff --git a/llvm/lib/IR/CJStructTypeGCInfo.cpp b/llvm/lib/IR/CJStructTypeGCInfo.cpp
 new file mode 100644
-index 000000000..87c72c69e
+index 000000000..c0d3834f2
 --- /dev/null
 +++ b/llvm/lib/IR/CJStructTypeGCInfo.cpp
-@@ -0,0 +1,213 @@
+@@ -0,0 +1,214 @@
 +//===-- IR/CJStructTypeGCInfo.cpp -- gc info utilities --------------------===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -34796,6 +34906,7 @@ index 000000000..87c72c69e
 +//===----------------------------------------------------------------------===//
 +
 +#include "llvm/IR/CJStructTypeGCInfo.h"
++#include "llvm/ADT/Triple.h"
 +
 +using namespace llvm;
 +
@@ -34985,7 +35096,7 @@ index 000000000..87c72c69e
 +  }
 +
 +  Constant *BMConst = nullptr;
-+  if (BMStr.length() < 64) {
++  if (BMStr.length() < 64 && !Triple(M.getTargetTriple()).isARM()) {
 +    BMConst = insertBitMapU64(BMStr, CommonBMType);
 +  } else {
 +    BMConst = insertBitMapGV(KeyStr, CommonBMType, BitMapName);
@@ -39870,6 +39981,626 @@ index ca7d53dce..407631e03 100644
 +
    DEPENDS
    intrinsics_gen
+ 
+diff --git a/llvm/lib/Target/ARM/ARMAsmPrinter.cpp b/llvm/lib/Target/ARM/ARMAsmPrinter.cpp
+index 57cbd7a3b..08f7cc6c0 100644
+--- a/llvm/lib/Target/ARM/ARMAsmPrinter.cpp
++++ b/llvm/lib/Target/ARM/ARMAsmPrinter.cpp
+@@ -27,11 +27,13 @@
+ #include "llvm/CodeGen/MachineFunctionPass.h"
+ #include "llvm/CodeGen/MachineJumpTableInfo.h"
+ #include "llvm/CodeGen/MachineModuleInfoImpls.h"
++#include "llvm/CodeGen/StackMaps.h"
+ #include "llvm/IR/Constants.h"
+ #include "llvm/IR/DataLayout.h"
+ #include "llvm/IR/Mangler.h"
+ #include "llvm/IR/Module.h"
+ #include "llvm/IR/Type.h"
++#include "llvm/IR/Statepoint.h"
+ #include "llvm/MC/MCAsmInfo.h"
+ #include "llvm/MC/MCAssembler.h"
+ #include "llvm/MC/MCContext.h"
+@@ -55,7 +57,10 @@ using namespace llvm;
+ ARMAsmPrinter::ARMAsmPrinter(TargetMachine &TM,
+                              std::unique_ptr<MCStreamer> Streamer)
+     : AsmPrinter(TM, std::move(Streamer)), Subtarget(nullptr), AFI(nullptr),
+-      MCP(nullptr), InConstantPool(false), OptimizationGoals(-1) {}
++      MCP(nullptr), InConstantPool(false), OptimizationGoals(-1), SM(*this),
++      CMI(*this, SM) {
++  SM.setARM();
++}
+ 
+ void ARMAsmPrinter::emitFunctionBodyEnd() {
+   // Make sure to terminate any constant pools that were at the end
+@@ -173,6 +178,8 @@ bool ARMAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
+   // Emit the XRay table for this function.
+   emitXRayTable();
+ 
++  CMI.recordCurrentFunc();
++
+   // If we need V4T thumb mode Register Indirect Jump pads, emit them.
+   // These are created per function, rather than per TU, since it's
+   // relatively easy to exceed the thumb branch range within a TU.
+@@ -577,6 +584,9 @@ void ARMAsmPrinter::emitEndOfAsmFile(Module &M) {
+   OptimizationGoals = -1;
+ 
+   ATS.finishAttributeSection();
++
++  emitCJMetadataInfo(CMI, M);
++  emitStackMaps(SM);
+ }
+ 
+ //===----------------------------------------------------------------------===//
+@@ -1332,6 +1342,182 @@ void ARMAsmPrinter::EmitUnwindingInstruction(const MachineInstr *MI) {
+   }
+ }
+ 
++//   ldr	R12, .Ltmp1
++// .Ltmp0:
++// 	add	R12, pc, R12
++// 	ldr	R12, [R12]
++// 	sub	sp, [sp, #8]
++// 	str	R12, [sp] // func address
++// 	mov	r12, #0
++// 	str	R12, [sp, #4] // CallFrameSize
++// 	bl	CJ_MCC_N2CStub
++// .Ltmp1:
++//   .long	.Ltmp1-(.calleefunc+8)
++void ARMAsmPrinter::emitCangjieCallStubInstImpl(const MachineInstr *MI,
++                                               const Function *F,
++                                               const MachineOperand &MOSym,
++                                               unsigned Opcode) {
++  auto *AddrGV = F->getParent()->getGlobalVariable(
++      MOSym.getGlobal()->getName().str() + ".CJStubGV", true);
++
++  MCSymbol *GVSymbol = GetARMGVSymbol(AddrGV, MOSym.getTargetFlags());
++  MCSymbol *Label0 = OutContext.createTempSymbol();
++  MCSymbol *Label1 = OutContext.createTempSymbol();
++  CangjieStubMap.push_back(std::make_tuple(GVSymbol, Label0, Label1));
++
++  // ldr R12, .LPCIxxx
++  EmitToStreamer(*OutStreamer,
++                 MCInstBuilder(ARM::LDRi12)
++                     .addReg(ARM::R12)
++                     .addExpr(MCSymbolRefExpr::create(Label1, OutContext))
++                     .addImm(0)
++                     .addImm(ARMCC::AL)
++                     .addReg(0));
++  // .Label0:
++  OutStreamer->emitLabel(Label0);
++  // add R12, pc, R12
++  EmitToStreamer(*OutStreamer, MCInstBuilder(ARM::ADDrr)
++                                   .addReg(ARM::R12)
++                                   .addReg(ARM::PC)
++                                   .addReg(ARM::R12)
++                                   .addImm(ARMCC::AL)
++                                   .addReg(0)
++                                   .addReg(0));
++  // ldr R12, [R12]
++  EmitToStreamer(*OutStreamer, MCInstBuilder(ARM::LDRi12)
++                                   .addReg(ARM::R12)
++                                   .addReg(ARM::R12)
++                                   .addImm(0)
++                                   .addImm(ARMCC::AL)
++                                   .addReg(0));
++  // sub	sp, [sp, #8]
++  EmitToStreamer(*OutStreamer, MCInstBuilder(ARM::SUBri)
++                                   .addReg(ARM::SP)
++                                   .addReg(ARM::SP)
++                                   .addImm(8)
++                                   .addImm(ARMCC::AL)
++                                   .addReg(0)
++                                   .addReg(0));
++  // str R12, [sp]
++  EmitToStreamer(*OutStreamer, MCInstBuilder(ARM::STRi12)
++                                   .addReg(ARM::R12)
++                                   .addReg(ARM::SP)
++                                   .addImm(0)
++                                   .addImm(ARMCC::AL)
++                                   .addReg(0));
++
++  // push called-addr and CallFrameSize to stack. This operation extends
++  // the sp of the caller by 16 bytes and will be fixed in MCC_XXXStub
++  const auto *OriCalled = dyn_cast<Function>(MOSym.getGlobal());
++  MDNode *Metadata = OriCalled->getMetadata("CallFrameSizeForCJFFI");
++  assert(Metadata != nullptr &&
++         "FFI Func must have CallFrameSizeForCJFFI meta!");
++  unsigned CallFrameSize =
++      dyn_cast<ConstantInt>(
++          dyn_cast<ConstantAsMetadata>(Metadata->getOperand(0).get())
++              ->getValue())
++          ->getSExtValue();
++
++  // mov r12 , #CallFrameSize
++  EmitToStreamer(*OutStreamer, MCInstBuilder(ARM::MOVi)
++                                   .addReg(ARM::R12)
++                                   .addImm(CallFrameSize)
++                                   .addImm(ARMCC::AL)
++                                   .addReg(0)
++                                   .addReg(0));
++  // str R12, [sp, #4]
++  EmitToStreamer(*OutStreamer, MCInstBuilder(ARM::STRi12)
++                                   .addReg(ARM::R12)
++                                   .addReg(ARM::SP)
++                                   .addImm(4)
++                                   .addImm(ARMCC::AL)
++                                   .addReg(0));
++
++  MCSymbol *StubGVSymbol = GetARMGVSymbol(F, 0);
++  // bl CJ_MCC_N2CStub
++  EmitToStreamer(*OutStreamer,
++                 MCInstBuilder(ARM::BL).addOperand(MCOperand::createExpr(
++                     MCSymbolRefExpr::create(StubGVSymbol, OutContext))));
++
++  SM.recordCJStackMap(*MI);
++  return;
++}
++
++// C2NStub
++// C2NStub
++// b .Lable
++// .Ltmp81:
++//    .long xxx.CJStubGV-(.Ltmp80+8)
++// .Ltmp83:
++//    .long xxx.CJStubGV-(.Ltmp82+8)
++// .Lable：
++void ARMAsmPrinter::emitCangjieCustomInst() {
++  if (!CangjieStubMap.empty()) {
++    MCSymbol *DotSym = OutContext.createTempSymbol();
++    const MCExpr *GVSymExpr = MCSymbolRefExpr::create(DotSym, OutContext);
++    EmitToStreamer(
++        *OutStreamer,
++        MCInstBuilder(ARM::Bcc).addExpr(GVSymExpr).addImm(ARMCC::AL).addReg(0));
++    for (unsigned C2NStubIndex = 0; C2NStubIndex < CangjieStubMap.size();
++         C2NStubIndex++) {
++      auto FuncSym = std::get<0>(CangjieStubMap[C2NStubIndex]);
++      auto StartLabel = std::get<1>(CangjieStubMap[C2NStubIndex]);
++      auto EndLabel = std::get<2>(CangjieStubMap[C2NStubIndex]);
++      OutStreamer->emitLabel(EndLabel);
++      // .long xxx.CJStubGV-(.Ltmp82+8)
++      auto Expr2 = MCBinaryExpr::createAdd(
++          MCSymbolRefExpr::create(StartLabel, OutContext),
++          MCConstantExpr::create(8, OutContext), OutContext);
++      auto Offset = MCBinaryExpr::createSub(
++          MCSymbolRefExpr::create(FuncSym, OutContext), Expr2, OutContext);
++      OutStreamer->emitValue(Offset, 4);
++    }
++    OutStreamer->emitLabel(DotSym);
++    CangjieStubMap.clear();
++  }
++}
++
++bool ARMAsmPrinter::tryEmitCangjieSpecificCall(const MachineInstr *MI) {
++  if (!MI->isCall()) {
++    return false;
++  }
++
++  unsigned Opcode = MI->getOpcode();
++  // statepoint call will be processed by LowerSTATEPOINT
++  if (Opcode == TargetOpcode::STATEPOINT) {
++    return false;
++  }
++
++  if (MI->getNumOperands() == 0) {
++    return false;
++  }
++
++  const MachineOperand &MOSym = MI->getOperand(0);
++  return tryEmitCangjieSpecificCallByMOSym(MI, MOSym, Opcode);
++}
++
++bool ARMAsmPrinter::tryEmitCangjieSpecificCallByMOSym(
++    const MachineInstr *MI, const MachineOperand &MOSym, unsigned Opcode) {
++  if (!MOSym.isGlobal()) {
++    return false;
++  }
++  const auto *Callee = dyn_cast<const Function>(MOSym.getGlobal());
++  if (Callee == nullptr) {
++    return false;
++  }
++  StringRef FuncName = Callee->getName();
++  if (FuncName.isSetDebugLocation()) {
++    return true;
++  }
++
++  const Function *NativeFunc = tryGetCangjieStubCallNativeFunc(MI, Callee);
++  if (NativeFunc != nullptr) {
++    emitCangjieCallStubInstImpl(MI, NativeFunc, MOSym, Opcode);
++    return true;
++  }
++  return false;
++}
++
+ // Simple pseudo-instructions have their lowering (with expansion to real
+ // instructions) auto-generated.
+ #include "ARMGenMCPseudoLowering.inc"
+@@ -1363,6 +1549,9 @@ void ARMAsmPrinter::emitInstruction(const MachineInstr *MI) {
+   assert(!convertAddSubFlagsOpcode(MI->getOpcode()) &&
+          "Pseudo flag setting opcode should be expanded early");
+ 
++  if (tryEmitCangjieSpecificCall(MI)) {
++    return;
++  }
+   // Check for manual lowerings.
+   unsigned Opc = MI->getOpcode();
+   switch (Opc) {
+@@ -2319,6 +2508,37 @@ void ARMAsmPrinter::emitInstruction(const MachineInstr *MI) {
+   case ARM::SEH_EpilogEnd:
+     ATS.emitARMWinCFIEpilogEnd();
+     return;
++
++  case TargetOpcode::STATEPOINT: {
++    StatepointOpers SOpers(MI);
++    const MachineOperand &CallTarget = SOpers.getCallTarget();
++    MCOperand CallTargetMCOp;
++    unsigned CallOpcode;
++    switch (CallTarget.getType()) {
++    default:
++      llvm_unreachable("Unsupported operand type in statepoint call target");
++      break;
++    case MachineOperand::MO_GlobalAddress:
++    case MachineOperand::MO_ExternalSymbol:
++      CallOpcode = ARM::BL;
++      if (tryEmitCangjieSpecificCallByMOSym(MI, CallTarget, CallOpcode)) {
++        return;
++      }
++      lowerOperand(CallTarget, CallTargetMCOp);
++      break;
++    case MachineOperand::MO_Immediate:
++      CallTargetMCOp = MCOperand::createImm(CallTarget.getImm());
++      CallOpcode = ARM::BL;
++      break;
++    case MachineOperand::MO_Register:
++      CallTargetMCOp = MCOperand::createReg(CallTarget.getReg());
++      CallOpcode = ARM::BLX;
++      break;
++    }
++    SM.recordCJStackMap(*MI);
++    EmitToStreamer(*OutStreamer, MCInstBuilder(CallOpcode).addOperand(CallTargetMCOp));
++    return;
++  }
+   }
+ 
+   MCInst TmpInst;
+diff --git a/llvm/lib/Target/ARM/ARMAsmPrinter.h b/llvm/lib/Target/ARM/ARMAsmPrinter.h
+index f8ff047a1..d55784076 100644
+--- a/llvm/lib/Target/ARM/ARMAsmPrinter.h
++++ b/llvm/lib/Target/ARM/ARMAsmPrinter.h
+@@ -11,6 +11,8 @@
+ 
+ #include "ARMSubtarget.h"
+ #include "llvm/CodeGen/AsmPrinter.h"
++#include "llvm/CodeGen/CJMetadata.h"
++#include "llvm/CodeGen/StackMaps.h"
+ #include "llvm/Target/TargetMachine.h"
+ 
+ namespace llvm {
+@@ -65,6 +67,10 @@ class LLVM_LIBRARY_VISIBILITY ARMAsmPrinter : public AsmPrinter {
+   /// debug info can link properly.
+   SmallPtrSet<const GlobalVariable*,2> EmittedPromotedGlobalLabels;
+ 
++  StackMaps SM;
++  CJMetadataInfo CMI;
++
++
+ public:
+   explicit ARMAsmPrinter(TargetMachine &TM,
+                          std::unique_ptr<MCStreamer> Streamer);
+@@ -129,6 +135,17 @@ private:
+   bool emitPseudoExpansionLowering(MCStreamer &OutStreamer,
+                                    const MachineInstr *MI);
+ 
++  bool tryEmitCangjieSpecificCall(const MachineInstr *MI) override;
++  bool tryEmitCangjieSpecificCallByMOSym(const MachineInstr *MI,
++                                         const MachineOperand &MOSym,
++                                         unsigned Opcode) override;
++  void emitCangjieCallStubInstImpl(const MachineInstr *MI,
++                                               const Function *F,
++                                               const MachineOperand &MOSym,
++                                               unsigned Opcode) override;
++  virtual void emitCangjieCustomInst() override;
++  MCOperand setGAAndLower(const MachineOperand &MOSym, 
++                          const GlobalValue *GV) ;
+ public:
+   unsigned getISAEncoding() override {
+     // ARM/Darwin adds ISA to the DWARF info for each function.
+diff --git a/llvm/lib/Target/ARM/ARMBaseInstrInfo.cpp b/llvm/lib/Target/ARM/ARMBaseInstrInfo.cpp
+index 183febe75..aae49ab8a 100644
+--- a/llvm/lib/Target/ARM/ARMBaseInstrInfo.cpp
++++ b/llvm/lib/Target/ARM/ARMBaseInstrInfo.cpp
+@@ -807,6 +807,25 @@ unsigned ARMBaseInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
+       Size = alignTo(Size, 4);
+     return Size;
+   }
++  case TargetOpcode::STATEPOINT:
++    auto NumBytes = StatepointOpers(&MI).getNumPatchBytes();
++    const MachineOperand &MO = MI.getOperand(3);
++
++    if (MO.isGlobal()){
++      const auto *Callee = dyn_cast<const Function>(MO.getGlobal());
++      if (Callee != nullptr) {
++        const auto &CallerFunc = MI.getParent()->getParent()->getFunction();
++        if (Callee->isCangjieNativeStub(CallerFunc)) {
++          // 10:intrinsics num,4 bytes per intrinsic
++          NumBytes= 10 * 4;
++        }
++      }
++    }
++    assert(NumBytes % 4 == 0 && "Invalid number of NOP bytes requested!");
++    // No patch bytes means a normal call inst is emitted
++    if (NumBytes == 0)
++      NumBytes = 4;
++    return NumBytes;
+   }
+ }
+ 
+diff --git a/llvm/lib/Target/ARM/ARMBaseRegisterInfo.cpp b/llvm/lib/Target/ARM/ARMBaseRegisterInfo.cpp
+index 1d0e743b9..b566bb11a 100644
+--- a/llvm/lib/Target/ARM/ARMBaseRegisterInfo.cpp
++++ b/llvm/lib/Target/ARM/ARMBaseRegisterInfo.cpp
+@@ -69,6 +69,8 @@ ARMBaseRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
+     // GHC set of callee saved regs is empty as all those regs are
+     // used for passing STG regs around
+     return CSR_NoRegs_SaveList;
++  } else if (F.getCallingConv() == CallingConv::CangjieGC) {
++    return CSR_CangjieGC_SaveList;
+   } else if (STI.splitFramePointerPush(*MF)) {
+     return CSR_Win_SplitFP_SaveList;
+   } else if (F.getCallingConv() == CallingConv::CFGuard_Check) {
+@@ -140,6 +142,8 @@ ARMBaseRegisterInfo::getCallPreservedMask(const MachineFunction &MF,
+     return STI.isTargetDarwin() ? CSR_iOS_SwiftTail_RegMask
+                                 : CSR_AAPCS_SwiftTail_RegMask;
+   }
++  if (CC == CallingConv::CangjieGC)
++    return CSR_CangjieGC_RegMask;
+   if (STI.getTargetLowering()->supportSwiftError() &&
+       MF.getFunction().getAttributes().hasAttrSomewhere(Attribute::SwiftError))
+     return STI.isTargetDarwin() ? CSR_iOS_SwiftError_RegMask
+diff --git a/llvm/lib/Target/ARM/ARMCallingConv.td b/llvm/lib/Target/ARM/ARMCallingConv.td
+index d14424c2d..7f2b49fb2 100644
+--- a/llvm/lib/Target/ARM/ARMCallingConv.td
++++ b/llvm/lib/Target/ARM/ARMCallingConv.td
+@@ -270,6 +270,10 @@ def CSR_FPRegs : CalleeSavedRegs<(add (sequence "D%u", 0, 31))>;
+ def CSR_AAPCS : CalleeSavedRegs<(add LR, R11, R10, R9, R8, R7, R6, R5, R4,
+                                      (sequence "D%u", 15, 8))>;
+ 
++def CSR_CangjieGC
++    : CalleeSavedRegs<(add LR, SP, (sequence "R%u", 12, 1),
++                      (sequence "D%u", 31, 0))>;
++
+ // The Windows Control Flow Guard Check function preserves the same registers as
+ // AAPCS, and also preserves all floating point registers.
+ def CSR_Win_AAPCS_CFGuard_Check : CalleeSavedRegs<(add LR, R11, R10, R9, R8, R7,
+diff --git a/llvm/lib/Target/ARM/ARMFastISel.cpp b/llvm/lib/Target/ARM/ARMFastISel.cpp
+index a167225e2..7a9a87501 100644
+--- a/llvm/lib/Target/ARM/ARMFastISel.cpp
++++ b/llvm/lib/Target/ARM/ARMFastISel.cpp
+@@ -1838,6 +1838,7 @@ CCAssignFn *ARMFastISel::CCAssignFnForCall(CallingConv::ID CC,
+       return (Return ? RetCC_ARM_AAPCS_VFP : CC_ARM_AAPCS_VFP);
+     }
+     LLVM_FALLTHROUGH;
++  case CallingConv::CangjieGC:
+   case CallingConv::C:
+   case CallingConv::CXX_FAST_TLS:
+     // Use target triple & subtarget features to do actual dispatch.
+@@ -2384,7 +2385,14 @@ bool ARMFastISel::SelectCall(const Instruction *I,
+   if (!ProcessCallArgs(Args, ArgRegs, ArgVTs, ArgFlags,
+                        RegArgs, CC, NumBytes, isVarArg))
+     return false;
+-
++  if (Callee) {
++    SmallVector<CCValAssign, 16> ArgLocs;
++    CCState CCInfo(CC, isVarArg, *FuncInfo.MF, ArgLocs, *Context);
++    CCInfo.AnalyzeCallOperands(ArgVTs, ArgFlags,
++                              CCAssignFnForCall(CC, false, isVarArg));
++    CCInfo.AddAlignedCallFrameSizeMetaDataForCJFFI(
++        const_cast<Function *>(dyn_cast<Function>(Callee)), NumBytes);
++  }
+   bool UseReg = false;
+   const GlobalValue *GV = dyn_cast<GlobalValue>(Callee);
+   if (!GV || Subtarget->genLongCalls()) UseReg = true;
+diff --git a/llvm/lib/Target/ARM/ARMFrameLowering.cpp b/llvm/lib/Target/ARM/ARMFrameLowering.cpp
+index 48b4d266b..d09793057 100644
+--- a/llvm/lib/Target/ARM/ARMFrameLowering.cpp
++++ b/llvm/lib/Target/ARM/ARMFrameLowering.cpp
+@@ -861,6 +861,13 @@ void ARMFrameLowering::emitPrologue(MachineFunction &MF,
+ 
+   // Move past area 1.
+   if (GPRCS1Size > 0) {
++    if (MF.getFunction().hasCangjieGC()) {
++      while (MBBI != MBB.end() && MBBI->getFlag(MachineInstr::FrameSetup))
++        ++MBBI;
++      assert(MBB.begin() != MBB.end());
++      MBBI = std::prev(MBBI);
++      GPRCS1Size += 4; // 4: size of pc register
++    }
+     GPRCS1Push = LastPush = MBBI++;
+     DefCFAOffsetCandidates.addInst(LastPush, GPRCS1Size, true);
+   }
+@@ -1047,6 +1054,10 @@ void ARMFrameLowering::emitPrologue(MachineFunction &MF,
+   if (HasFP) {
+     AfterPush = std::next(GPRCS1Push);
+     unsigned PushSize = sizeOfSPAdjustment(*GPRCS1Push);
++    if (MF.getFunction().hasCangjieGC())
++      PushSize += 4 * (GPRCS1Push->getOperand(4).getReg() == ARM::PC
++                           ? 2   // 2: r11, lr
++                           : 3); // 3: r11, lr, pc, 4: RegSize
+     int FPOffset = PushSize + FramePtrOffsetInPush;
+     if (STI.splitFramePointerPush(MF)) {
+       AfterPush = std::next(GPRCS2Push);
+@@ -1549,8 +1560,35 @@ void ARMFrameLowering::emitPushInst(MachineBasicBlock &MBB,
+                                     .addReg(ARM::SP)
+                                     .setMIFlags(MIFlags)
+                                     .add(predOps(ARMCC::AL));
+-      for (unsigned i = 0, e = Regs.size(); i < e; ++i)
+-        MIB.addReg(Regs[i].first, getKillRegState(Regs[i].second));
++      // Only need to be handle in `isARMArea1Register`, and the last reg is LR.
++      if (MBB.getParent()->getFunction().hasCangjieGC() && LastReg == ARM::LR) {
++        auto *MF = MBB.getParent();
++        // start pc
++        BuildMI(MBB, MI, DL, TII.get(StmOpc), ARM::SP)
++            .addReg(ARM::SP)
++            .setMIFlags(MIFlags)
++            .add(predOps(ARMCC::AL))
++            .addReg(ARM::PC);
++
++        auto MIB2 = BuildMI(MBB, MI, DL, TII.get(StmOpc), ARM::SP)
++                        .addReg(ARM::SP)
++                        .setMIFlags(MIFlags)
++                        .add(predOps(ARMCC::AL));
++        for (unsigned i = 0, e = Regs.size(); i < e; ++i)
++          if (TRI.getEncodingValue(Regs[i].first) >=
++              TRI.getEncodingValue(TRI.getFrameRegister(*MF)))
++            // r11, lr
++            MIB.addReg(Regs[i].first, getKillRegState(Regs[i].second));
++          else
++            // Other callee saved reg
++            MIB2.addReg(Regs[i].first, getKillRegState(Regs[i].second));
++        // Empty csr operands
++        if (MIB2->getDesc().getNumOperands() > MIB2->getNumOperands())
++          MIB2->eraseFromParent();
++      } else {
++        for (unsigned i = 0, e = Regs.size(); i < e; ++i)
++          MIB.addReg(Regs[i].first, getKillRegState(Regs[i].second));
++      }
+     } else if (Regs.size() == 1) {
+       BuildMI(MBB, MI, DL, TII.get(StrOpc), ARM::SP)
+           .addReg(Regs[0].first, getKillRegState(Regs[0].second))
+@@ -1646,8 +1684,31 @@ void ARMFrameLowering::emitPopInst(MachineBasicBlock &MBB,
+                                     .addReg(ARM::SP)
+                                     .add(predOps(ARMCC::AL))
+                                     .setMIFlags(MachineInstr::FrameDestroy);
+-      for (unsigned i = 0, e = Regs.size(); i < e; ++i)
+-        MIB.addReg(Regs[i], getDefRegState(true));
++      // The last reg may be PC or LR.
++      if (MBB.getParent()->getFunction().hasCangjieGC() &&
++          (LastReg == ARM::PC || LastReg == ARM::LR)) {
++        auto *MF = MBB.getParent();
++        // 4: size of pc
++        emitSPUpdate(!AFI->isThumbFunction(), MBB, MI, DL, *STI.getInstrInfo(),
++                     4, MachineInstr::FrameDestroy);
++        auto MIB2 = BuildMI(MBB, MI, DL, TII.get(LdmOpc), ARM::SP)
++                        .addReg(ARM::SP)
++                        .add(predOps(ARMCC::AL))
++                        .setMIFlags(MachineInstr::FrameDestroy);
++        for (unsigned i = 0, e = Regs.size(); i < e; ++i)
++          if (TRI.getEncodingValue(Regs[i]) <
++              TRI.getEncodingValue(TRI.getFrameRegister(*MF)))
++            // r11, lr
++            MIB.addReg(Regs[i], getDefRegState(true));
++          else
++            MIB2.addReg(Regs[i], getDefRegState(true));
++        // Empty csr operands
++        if (MIB->getDesc().getNumOperands() > MIB->getNumOperands())
++          MIB->eraseFromParent();
++      } else {
++        for (unsigned i = 0, e = Regs.size(); i < e; ++i)
++          MIB.addReg(Regs[i], getDefRegState(true));
++      }
+       if (DeleteRet) {
+         if (MI != MBB.end()) {
+           MIB.copyImplicitOps(*MI);
+@@ -2076,6 +2137,8 @@ static unsigned estimateRSStackSizeLimit(MachineFunction &MF,
+       for (unsigned i = 0, e = MI.getNumOperands(); i != e; ++i) {
+         if (!MI.getOperand(i).isFI())
+           continue;
++        if (MI.isPseudo())
++          continue;
+ 
+         // When using ADDri to get the address of a stack object, 255 is the
+         // largest offset guaranteed to fit in the immediate offset.
+diff --git a/llvm/lib/Target/ARM/ARMISelLowering.cpp b/llvm/lib/Target/ARM/ARMISelLowering.cpp
+index 4c24d7020..f2a8b4124 100644
+--- a/llvm/lib/Target/ARM/ARMISelLowering.cpp
++++ b/llvm/lib/Target/ARM/ARMISelLowering.cpp
+@@ -2067,6 +2067,7 @@ ARMTargetLowering::getEffectiveCallingConv(CallingConv::ID CC,
+   case CallingConv::ARM_APCS:
+   case CallingConv::GHC:
+   case CallingConv::CFGuard_Check:
++  case CallingConv::CangjieGC:
+     return CC;
+   case CallingConv::PreserveMost:
+     return CallingConv::PreserveMost;
+@@ -2116,6 +2117,8 @@ CCAssignFn *ARMTargetLowering::CCAssignFnForNode(CallingConv::ID CC,
+   switch (getEffectiveCallingConv(CC, isVarArg)) {
+   default:
+     report_fatal_error("Unsupported calling convention");
++  case CallingConv::CangjieGC:
++    return Return ? RetCC_ARM_AAPCS : CC_ARM_AAPCS;
+   case CallingConv::ARM_APCS:
+     return (Return ? RetCC_ARM_APCS : CC_ARM_APCS);
+   case CallingConv::ARM_AAPCS:
+@@ -2403,6 +2406,7 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
+ 
+   // Get a count of how many bytes are to be pushed on the stack.
+   unsigned NumBytes = CCInfo.getNextStackOffset();
++  unsigned CallFrameSizeForCJFFI = NumBytes;
+ 
+   // SPDiff is the byte offset of the call's argument area from the callee's.
+   // Stores to callee stack arguments will be placed in FixedStackSlots offset
+@@ -2419,6 +2423,7 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
+     // popped size 16-byte aligned.
+     Align StackAlign = DAG.getDataLayout().getStackAlignment();
+     NumBytes = alignTo(NumBytes, StackAlign);
++    CallFrameSizeForCJFFI = NumBytes;
+ 
+     // SPDiff will be negative if this tail call requires more space than we
+     // would automatically have in our incoming argument space. Positive if we
+@@ -2629,8 +2634,12 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
+   const TargetMachine &TM = getTargetMachine();
+   const Module *Mod = MF.getFunction().getParent();
+   const GlobalValue *GV = nullptr;
+-  if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee))
++  if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)){
++    auto *CalleeFunc = dyn_cast<Function>(G->getGlobal());
++    CCInfo.AddAlignedCallFrameSizeMetaDataForCJFFI(
++        const_cast<Function *>(CalleeFunc), CallFrameSizeForCJFFI);
+     GV = G->getGlobal();
++  }
+   bool isStub =
+       !TM.shouldAssumeDSOLocal(*Mod, GV) && Subtarget->isTargetMachO();
+ 
+@@ -11758,6 +11767,14 @@ ARMTargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
+     llvm_unreachable("Unexpected instr type to insert");
+   }
+ 
++  case TargetOpcode::STATEPOINT:
++    MI.addOperand(*MI.getMF(),
++                  MachineOperand::CreateReg(
++                      ARM::LR, /*isDef*/ true,
++                      /*isImp*/ true, /*isKill*/ false, /*isDead*/ true,
++                      /*isUndef*/ false, /*isEarlyClobber*/ true));
++    return emitPatchPoint(MI, BB);
++
+   // Thumb1 post-indexed loads are really just single-register LDMs.
+   case ARM::tLDR_postidx: {
+     MachineOperand Def(MI.getOperand(1));
+@@ -21193,7 +21210,12 @@ Value *ARMTargetLowering::emitLoadLinked(IRBuilderBase &Builder, Type *ValueTy,
+         IsAcquire ? Intrinsic::arm_ldaexd : Intrinsic::arm_ldrexd;
+     Function *Ldrex = Intrinsic::getDeclaration(M, Int);
+ 
+-    Addr = Builder.CreateBitCast(Addr, Type::getInt8PtrTy(M->getContext()));
++    if (Builder.GetInsertBlock()->getParent()->hasCangjieGC())
++      // It is safe to cast addrspace.
++      Addr = Builder.CreatePointerBitCastOrAddrSpaceCast(
++          Addr, Type::getInt8PtrTy(M->getContext()));
++    else
++      Addr = Builder.CreateBitCast(Addr, Type::getInt8PtrTy(M->getContext()));
+     Value *LoHi = Builder.CreateCall(Ldrex, Addr, "lohi");
+ 
+     Value *Lo = Builder.CreateExtractValue(LoHi, 0, "lo");
+@@ -21243,7 +21265,11 @@ Value *ARMTargetLowering::emitStoreConditional(IRBuilderBase &Builder,
+     Value *Hi = Builder.CreateTrunc(Builder.CreateLShr(Val, 32), Int32Ty, "hi");
+     if (!Subtarget->isLittle())
+       std::swap(Lo, Hi);
+-    Addr = Builder.CreateBitCast(Addr, Type::getInt8PtrTy(M->getContext()));
++    if (Builder.GetInsertBlock()->getParent()->hasCangjieGC())
++      Addr = Builder.CreatePointerBitCastOrAddrSpaceCast(
++          Addr, Type::getInt8PtrTy(M->getContext()));
++    else
++      Addr = Builder.CreateBitCast(Addr, Type::getInt8PtrTy(M->getContext()));
+     return Builder.CreateCall(Strex, {Lo, Hi, Addr});
+   }
  
 diff --git a/llvm/lib/Target/TargetLoweringObjectFile.cpp b/llvm/lib/Target/TargetLoweringObjectFile.cpp
 index 29cc28403..35f1aa816 100644
@@ -50812,10 +51543,10 @@ index 000000000..f1a224b86
 +                    "CJ Barrier Opt", false, false)
 diff --git a/llvm/lib/Transforms/Scalar/CJBarrierSplit.cpp b/llvm/lib/Transforms/Scalar/CJBarrierSplit.cpp
 new file mode 100644
-index 000000000..ce924cede
+index 000000000..d16c6dc3b
 --- /dev/null
 +++ b/llvm/lib/Transforms/Scalar/CJBarrierSplit.cpp
-@@ -0,0 +1,448 @@
+@@ -0,0 +1,454 @@
 +//===- CJBarrierSplit.cpp ---------------------------------------*- C++ -*-===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -51219,12 +51950,18 @@ index 000000000..ce924cede
 +
 +PreservedAnalyses CJBarrierSplit::run(Module &M,
 +                                      ModuleAnalysisManager &) const {
++  auto C = &(M.getContext());
++  int LongSize = M.getDataLayout().getPointerSizeInBits();
++  auto IntptrTy = Type::getIntNTy(*C, LongSize);
++
 +  SmallVector<Function *> AggBarrierIntrinsics = {
-+      Intrinsic::getDeclaration(&M, Intrinsic::cj_gcread_struct),
++      Intrinsic::getDeclaration(&M, Intrinsic::cj_gcread_struct, {IntptrTy}),
 +      Intrinsic::getDeclaration(&M, Intrinsic::cj_gcwrite_struct,
-+                                {Type::getInt8PtrTy(M.getContext())}),
-+      Intrinsic::getDeclaration(&M, Intrinsic::cj_gcread_static_struct),
-+      Intrinsic::getDeclaration(&M, Intrinsic::cj_gcwrite_static_struct)};
++                                {Type::getInt8PtrTy(M.getContext()), IntptrTy}),
++      Intrinsic::getDeclaration(&M, Intrinsic::cj_gcread_static_struct,
++                                {IntptrTy}),
++      Intrinsic::getDeclaration(&M, Intrinsic::cj_gcwrite_static_struct,
++                                {IntptrTy})};
 +  bool Changed = false;
 +  for (auto *F : AggBarrierIntrinsics)
 +    Changed |= simplySplit(F);
@@ -55600,10 +56337,10 @@ index 000000000..2a47341d0
 +                "Cangjie Generic Intrinsics Optimize", false, false)
 diff --git a/llvm/lib/Transforms/Scalar/CJIRVerifier.cpp b/llvm/lib/Transforms/Scalar/CJIRVerifier.cpp
 new file mode 100644
-index 000000000..657cbbfd5
+index 000000000..3c287e256
 --- /dev/null
 +++ b/llvm/lib/Transforms/Scalar/CJIRVerifier.cpp
-@@ -0,0 +1,804 @@
+@@ -0,0 +1,807 @@
 +//===- CJIRVerifier.cpp - Cangjie IR Verifier --------------*- C++ -*------===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -56376,6 +57113,9 @@ index 000000000..657cbbfd5
 +} // namespace
 +
 +static bool doCJIRVerify(Module &M) {
++  Triple T(M.getTargetTriple());
++  if (T.isARM())
++    return false;
 +  bool Broken = false;
 +  CJVerifier CV(M, &dbgs());
 +
@@ -58430,10 +59170,10 @@ index 000000000..b83e440ed
 +}
 diff --git a/llvm/lib/Transforms/Scalar/CJRewriteStatepoint.cpp b/llvm/lib/Transforms/Scalar/CJRewriteStatepoint.cpp
 new file mode 100644
-index 000000000..05496c794
+index 000000000..41e896873
 --- /dev/null
 +++ b/llvm/lib/Transforms/Scalar/CJRewriteStatepoint.cpp
-@@ -0,0 +1,3064 @@
+@@ -0,0 +1,3063 @@
 +//===- CJRewriteStatepoint.cpp - Make Cangjie GC relocations explicit -----===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -58522,7 +59262,6 @@ index 000000000..05496c794
 +static cl::opt<bool>
 +    DisableCJRewrite("disable-cj-rewrite-statepoint", cl::init(false),
 +                     cl::desc("Do not run CJRewriteStatepoint"));
-+
 +// Cost threshold measuring when it is profitable to rematerialize value instead
 +// of relocating it
 +static cl::opt<unsigned>
@@ -61500,10 +62239,10 @@ index 000000000..05496c794
 +}
 diff --git a/llvm/lib/Transforms/Scalar/CJRuntimeLowering.cpp b/llvm/lib/Transforms/Scalar/CJRuntimeLowering.cpp
 new file mode 100644
-index 000000000..9ca5aabf7
+index 000000000..56379649a
 --- /dev/null
 +++ b/llvm/lib/Transforms/Scalar/CJRuntimeLowering.cpp
-@@ -0,0 +1,1134 @@
+@@ -0,0 +1,1141 @@
 +//===- CJRuntimeLowering.cpp - CJ Runtime Lowering --------------*- C++ -*-===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -61544,8 +62283,6 @@ index 000000000..9ca5aabf7
 +
 +using namespace llvm;
 +
-+static cl::opt<bool> EnableCJNewArrayFast("enable-cangjie-new-array-fastpath",
-+                                          cl::init(true), cl::ReallyHidden);
 +namespace llvm {
 +extern cl::opt<bool> CJLTOOpt;
 +extern cl::opt<bool> CangjieJIT;
@@ -61557,6 +62294,8 @@ index 000000000..9ca5aabf7
 +                                   cl::desc("Specify the input file"),
 +                                   cl::value_desc("filename"),
 +                                   cl::init("./ProfileOutput.txt"));
++cl::opt<bool> EnableCJNewArrayFast("enable-cangjie-new-array-fastpath",
++                                   cl::init(true), cl::ReallyHidden);
 +} // namespace llvm
 +
 +namespace {
@@ -61690,8 +62429,10 @@ index 000000000..9ca5aabf7
 +    Value *ElemSizePtr = IRB.CreateGEP(KlassType, Elem, {Idxs}, "", true);
 +    Value *ElemSizeI32 = IRB.CreateLoad(IRB.getInt32Ty(), ElemSizePtr);
 +    Value *ElemSizeI64 = IRB.CreateZExt(ElemSizeI32, IRB.getInt64Ty());
++    const Triple TT(CI->getModule()->getTargetTriple());
 +    Value *ElemSize =
-+        IRB.CreateSelect(IsRef, IRB.getInt64(8), ElemSizeI64); // 8:ref size
++        IRB.CreateSelect(IsRef, TT.isARM() ? IRB.getInt64(4) : IRB.getInt64(8),
++                         ElemSizeI64); // 4|8:ref size
 +    Offset = IRB.CreateMul(ElemSize, FieldIndex);
 +    return IRB.CreateAdd(Offset, IRB.getInt64(AttachedInt));
 +  }
@@ -62294,9 +63035,12 @@ index 000000000..9ca5aabf7
 +    Instruction *InsertPos = &*EntryBB.getFirstInsertionPt();
 +    IRBuilder<> IRB(InsertPos);
 +    auto *TIType = StructType::getTypeByName(C, "TypeInfo");
++    const Triple TT(CI->getModule()->getTargetTriple());
 +    if (isPrimitiveTypeInfo(GV)) {
 +      SmallVector<Type *> ElemTypes;
 +      ElemTypes.push_back(TIType->getPointerTo());
++      if (TT.isARM())
++        ElemTypes.push_back(IRB.getInt32Ty());
 +      ElemTypes.push_back(IRB.getInt64Ty());
 +      AI = IRB.CreateAlloca(StructType::get(C, ElemTypes));
 +      Value *BC = IRB.CreateBitCast(AI, IRB.getInt8PtrTy()->getPointerTo());
@@ -62308,6 +63052,8 @@ index 000000000..9ca5aabf7
 +      assert(ST && "alloca.generic layout info missing!");
 +      SmallVector<Type *> ElemTypes;
 +      ElemTypes.push_back(TIType->getPointerTo());
++      if (TT.isARM())
++        ElemTypes.push_back(IRB.getInt32Ty());
 +      ElemTypes.push_back(ST);
 +      AI = IRB.CreateAlloca(StructType::get(C, ElemTypes));
 +      Value *BC = IRB.CreateBitCast(AI, IRB.getInt8PtrTy()->getPointerTo());
@@ -64066,10 +64812,10 @@ index 000000000..247781471
 +                "Cangjie simple range analysis.", false, false)
 diff --git a/llvm/lib/Transforms/Scalar/CJSpecificOpt.cpp b/llvm/lib/Transforms/Scalar/CJSpecificOpt.cpp
 new file mode 100644
-index 000000000..73ce7c4cd
+index 000000000..c6a7e4253
 --- /dev/null
 +++ b/llvm/lib/Transforms/Scalar/CJSpecificOpt.cpp
-@@ -0,0 +1,444 @@
+@@ -0,0 +1,446 @@
 +//===- CJSpecificOpt.cpp ----------------------------------------*- C++ -*-===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -64452,7 +65198,9 @@ index 000000000..73ce7c4cd
 +  Changed |= markfastCall(F);
 +  Changed |= deadAllocaElimination(F);
 +  Changed |= replaceInvalidAddrpaceCast(F);
-+  Changed |= insertStackCheck(F);
++  const Triple TT(F.getParent()->getTargetTriple());
++  if (!TT.isARM())
++    Changed |= insertStackCheck(F);
 +  Changed |= insertResetFPState(F, OptLevel);
 +  return Changed;
 +}
@@ -66615,7 +67363,7 @@ index 1f5bc69ac..731913aba 100644
    ++NumCallSlot;
    return true;
 diff --git a/llvm/lib/Transforms/Scalar/PlaceSafepoints.cpp b/llvm/lib/Transforms/Scalar/PlaceSafepoints.cpp
-index e1cc3fc71..ca7b2dc9e 100644
+index e1cc3fc71..a0cad3cb8 100644
 --- a/llvm/lib/Transforms/Scalar/PlaceSafepoints.cpp
 +++ b/llvm/lib/Transforms/Scalar/PlaceSafepoints.cpp
 @@ -47,16 +47,20 @@
@@ -66672,7 +67420,7 @@ index e1cc3fc71..ca7b2dc9e 100644
  namespace {
  
  /// An analysis pass whose purpose is to identify each of the backedges in
-@@ -150,20 +167,85 @@ struct PlaceBackedgeSafepointsImpl : public FunctionPass {
+@@ -150,20 +167,87 @@ struct PlaceBackedgeSafepointsImpl : public FunctionPass {
      AU.setPreservesAll();
    }
  };
@@ -66700,13 +67448,15 @@ index e1cc3fc71..ca7b2dc9e 100644
 +  Function *MCCYieldFun = cast<Function>(
 +      M.getOrInsertFunction(MCCYieldStr, FuncType).getCallee());
 +  MCCYieldFun->setUnnamedAddr(GlobalVariable::UnnamedAddr::Local);
-+  MCCYieldFun->setCallingConv(CallingConv::CangjieGC);
++  if (!Triple(M.getTargetTriple()).isARM())
++    MCCYieldFun->setCallingConv(CallingConv::CangjieGC);
 +  MCCYieldFun->addFnAttr("gc-safepoint");
 +  Function *DoSafepointFun =
 +      cast<Function>(M.getOrInsertFunction(GCSafeStr, FuncType).getCallee());
 +  BasicBlock *BB = BasicBlock::Create(M.getContext(), "entry", DoSafepointFun);
 +  IRBuilder<> builder(BB);
-+  builder.CreateCall(MCCYieldFun)->setCallingConv(CallingConv::CangjieGC);
++  if (!Triple(M.getTargetTriple()).isARM())
++    builder.CreateCall(MCCYieldFun)->setCallingConv(CallingConv::CangjieGC);
 +  builder.CreateRetVoid();
 +
 +  GlobalVariable *CJFuncGV = cast<GlobalVariable>(M.getOrInsertGlobal(
@@ -66763,7 +67513,7 @@ index e1cc3fc71..ca7b2dc9e 100644
  
    void getAnalysisUsage(AnalysisUsage &AU) const override {
      // We modify the graph wholesale (inlining, block insertion, etc).  We
-@@ -172,7 +254,7 @@ struct PlaceSafepoints : public FunctionPass {
+@@ -172,7 +256,7 @@ struct PlaceSafepoints : public FunctionPass {
      AU.addRequired<TargetLibraryInfoWrapperPass>();
    }
  };
@@ -66772,7 +67522,7 @@ index e1cc3fc71..ca7b2dc9e 100644
  
  // Insert a safepoint poll immediately before the given instruction.  Does
  // not handle the parsability of state at the runtime call, that's the
-@@ -182,6 +264,14 @@ InsertSafepointPoll(Instruction *InsertBefore,
+@@ -182,6 +266,14 @@ InsertSafepointPoll(Instruction *InsertBefore,
                      std::vector<CallBase *> &ParsePointsNeeded /*rval*/,
                      const TargetLibraryInfo &TLI);
  
@@ -66787,7 +67537,7 @@ index e1cc3fc71..ca7b2dc9e 100644
  static bool needsStatepoint(CallBase *Call, const TargetLibraryInfo &TLI) {
    if (callsGCLeafFunction(Call, TLI))
      return false;
-@@ -189,7 +279,12 @@ static bool needsStatepoint(CallBase *Call, const TargetLibraryInfo &TLI) {
+@@ -189,7 +281,12 @@ static bool needsStatepoint(CallBase *Call, const TargetLibraryInfo &TLI) {
      if (CI->isInlineAsm())
        return false;
    }
@@ -66801,7 +67551,7 @@ index e1cc3fc71..ca7b2dc9e 100644
    return !(isa<GCStatepointInst>(Call) || isa<GCRelocateInst>(Call) ||
             isa<GCResultInst>(Call));
  }
-@@ -224,7 +319,9 @@ static bool containsUnconditionalCallSafepoint(Loop *L, BasicBlock *Header,
+@@ -224,7 +321,9 @@ static bool containsUnconditionalCallSafepoint(Loop *L, BasicBlock *Header,
          // unconditional poll. In practice, this is only a theoretical concern
          // since we don't have any methods with conditional-only safepoint
          // polls.
@@ -66812,7 +67562,7 @@ index e1cc3fc71..ca7b2dc9e 100644
            return true;
      }
  
-@@ -236,6 +333,71 @@ static bool containsUnconditionalCallSafepoint(Loop *L, BasicBlock *Header,
+@@ -236,6 +335,71 @@ static bool containsUnconditionalCallSafepoint(Loop *L, BasicBlock *Header,
    return false;
  }
  
@@ -66884,7 +67634,7 @@ index e1cc3fc71..ca7b2dc9e 100644
  /// Returns true if this loop is known to terminate in a finite number of
  /// iterations.  Note that this function may return false for a loop which
  /// does actual terminate in a finite constant number of iterations due to
-@@ -322,10 +484,19 @@ bool PlaceBackedgeSafepointsImpl::runOnLoop(Loop *L) {
+@@ -322,10 +486,19 @@ bool PlaceBackedgeSafepointsImpl::runOnLoop(Loop *L) {
      // not.  Note that this is about unburdening the optimizer in loops, not
      // avoiding the runtime cost of the actual safepoint.
      if (!AllBackedges) {
@@ -66908,7 +67658,7 @@ index e1cc3fc71..ca7b2dc9e 100644
        }
        if (CallSafepointsEnabled &&
            containsUnconditionalCallSafepoint(L, Header, Pred, *DT, *TLI)) {
-@@ -363,9 +534,14 @@ bool PlaceBackedgeSafepointsImpl::runOnLoop(Loop *L) {
+@@ -363,9 +536,14 @@ bool PlaceBackedgeSafepointsImpl::runOnLoop(Loop *L) {
  static bool doesNotRequireEntrySafepointBefore(CallBase *Call) {
    if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(Call)) {
      switch (II->getIntrinsicID()) {
@@ -66923,7 +67673,7 @@ index e1cc3fc71..ca7b2dc9e 100644
        // The can wrap an actual call which may grow the stack by an unbounded
        // amount or run forever.
        return false;
-@@ -380,6 +556,11 @@ static bool doesNotRequireEntrySafepointBefore(CallBase *Call) {
+@@ -380,6 +558,11 @@ static bool doesNotRequireEntrySafepointBefore(CallBase *Call) {
        return true;
      }
    }
@@ -66935,7 +67685,7 @@ index e1cc3fc71..ca7b2dc9e 100644
    return false;
  }
  
-@@ -451,6 +632,11 @@ static bool shouldRewriteFunction(Function &F) {
+@@ -451,6 +634,11 @@ static bool shouldRewriteFunction(Function &F) {
      const auto &FunctionGCName = F.getGC();
      const StringRef StatepointExampleName("statepoint-example");
      const StringRef CoreCLRName("coreclr");
@@ -66947,7 +67697,7 @@ index e1cc3fc71..ca7b2dc9e 100644
      return (StatepointExampleName == FunctionGCName) ||
             (CoreCLRName == FunctionGCName);
    } else
-@@ -463,7 +649,24 @@ static bool enableEntrySafepoints(Function &F) { return !NoEntry; }
+@@ -463,7 +651,24 @@ static bool enableEntrySafepoints(Function &F) { return !NoEntry; }
  static bool enableBackedgeSafepoints(Function &F) { return !NoBackedge; }
  static bool enableCallSafepoints(Function &F) { return !NoCall; }
  
@@ -66973,7 +67723,7 @@ index e1cc3fc71..ca7b2dc9e 100644
    if (F.isDeclaration() || F.empty()) {
      // This is a declaration, nothing to do.  Must exit early to avoid crash in
      // dom tree calculation
-@@ -480,9 +683,6 @@ bool PlaceSafepoints::runOnFunction(Function &F) {
+@@ -480,9 +685,6 @@ bool PlaceSafepoints::runOnFunction(Function &F) {
    if (!shouldRewriteFunction(F))
      return false;
  
@@ -66983,7 +67733,7 @@ index e1cc3fc71..ca7b2dc9e 100644
    bool Modified = false;
  
    // In various bits below, we rely on the fact that uses are reachable from
-@@ -588,6 +788,9 @@ bool PlaceSafepoints::runOnFunction(Function &F) {
+@@ -588,6 +790,9 @@ bool PlaceSafepoints::runOnFunction(Function &F) {
    // Now that we've identified all the needed safepoint poll locations, insert
    // safepoint polls themselves.
    for (Instruction *PollLocation : PollsNeeded) {
@@ -66993,7 +67743,7 @@ index e1cc3fc71..ca7b2dc9e 100644
      std::vector<CallBase *> RuntimeCalls;
      InsertSafepointPoll(PollLocation, RuntimeCalls, TLI);
      llvm::append_range(ParsePointNeeded, RuntimeCalls);
-@@ -596,11 +799,38 @@ bool PlaceSafepoints::runOnFunction(Function &F) {
+@@ -596,11 +801,38 @@ bool PlaceSafepoints::runOnFunction(Function &F) {
    return Modified;
  }
  
@@ -67035,7 +67785,7 @@ index e1cc3fc71..ca7b2dc9e 100644
  }
  
  INITIALIZE_PASS_BEGIN(PlaceBackedgeSafepointsImpl,
-@@ -613,10 +843,11 @@ INITIALIZE_PASS_END(PlaceBackedgeSafepointsImpl,
+@@ -613,10 +845,11 @@ INITIALIZE_PASS_END(PlaceBackedgeSafepointsImpl,
                      "place-backedge-safepoints-impl",
                      "Place Backedge Safepoints", false, false)
  
@@ -99654,10 +100404,10 @@ index 61d0e121f..8db34100e 100644
    if (EnableDebugify)
      MPM.addPass(NewPMDebugifyPass());
 diff --git a/llvm/tools/opt/opt.cpp b/llvm/tools/opt/opt.cpp
-index a02997f82..1c4088334 100644
+index a02997f82..f6282cc6a 100644
 --- a/llvm/tools/opt/opt.cpp
 +++ b/llvm/tools/opt/opt.cpp
-@@ -61,7 +61,12 @@
+@@ -61,7 +61,14 @@
  #include <memory>
  using namespace llvm;
  using namespace opt_tool;
@@ -99667,11 +100417,13 @@ index a02997f82..1c4088334 100644
 +extern cl::opt<bool> DisableGCSupport;
 +extern cl::opt<bool> EnableBarrierOnly;
 +extern cl::opt<bool> EnableSafepointOnly;
++extern cl::opt<bool> EnableCJBarrierSplit;
++extern cl::opt<bool> EnableCJNewArrayFast;
 +}
  static codegen::RegisterCodeGenFlags CFG;
  
  // The OptimizationList is automatically populated with registered Passes by the
-@@ -89,7 +94,8 @@ static cl::opt<std::string> PassPipeline(
+@@ -89,7 +96,8 @@ static cl::opt<std::string> PassPipeline(
  static cl::opt<bool> PrintPasses("print-passes",
                                   cl::desc("Print available passes that can be "
                                            "specified in -passes=foo and exit"));
@@ -99681,7 +100433,7 @@ index a02997f82..1c4088334 100644
  static cl::opt<std::string>
  InputFilename(cl::Positional, cl::desc("<input bitcode file>"),
      cl::init("-"), cl::value_desc("filename"));
-@@ -337,7 +343,9 @@ static void AddOptimizationPasses(legacy::PassManagerBase &MPM,
+@@ -337,7 +345,9 @@ static void AddOptimizationPasses(legacy::PassManagerBase &MPM,
    Builder.OptLevel = OptLevel;
    Builder.SizeLevel = SizeLevel;
  
@@ -99692,7 +100444,19 @@ index a02997f82..1c4088334 100644
      Builder.Inliner = createFunctionInliningPass(OptLevel, SizeLevel, false);
    } else {
      Builder.Inliner = createAlwaysInlinerLegacyPass();
-@@ -547,14 +555,20 @@ int main(int argc, char **argv) {
+@@ -384,6 +394,11 @@ static TargetMachine* GetTargetMachine(Triple TheTriple, StringRef CPUStr,
+     return nullptr;
+   }
+ 
++  if (CJPipeline && TheTriple.isARM()) {
++    EnableCJBarrierSplit = false;
++    EnableCJNewArrayFast = false;
++  }
++
+   return TheTarget->createTargetMachine(
+       TheTriple.getTriple(), codegen::getCPUStr(), codegen::getFeaturesStr(),
+       Options, codegen::getExplicitRelocModel(),
+@@ -547,14 +562,20 @@ int main(int argc, char **argv) {
    cl::ParseCommandLineOptions(argc, argv,
      "llvm .bc -> .bc modular optimizer and analysis printer\n");
  
