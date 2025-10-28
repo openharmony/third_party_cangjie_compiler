@@ -19526,7 +19526,7 @@ index 19e00e111..324854824 100644
      if (llvm::Expected<APFloat::opStatus> op =
              f.convertFromString(value_str, APFloat::rmNearestTiesToEven)) {
 diff --git a/lldb/source/Version/Version.cpp b/lldb/source/Version/Version.cpp
-index b391fe1ea..2038ffb07 100644
+index b391fe1ea..5e96676dc 100644
 --- a/lldb/source/Version/Version.cpp
 +++ b/lldb/source/Version/Version.cpp
 @@ -4,6 +4,12 @@
@@ -19582,7 +19582,7 @@ index b391fe1ea..2038ffb07 100644
        g_version_str += "\n  llvm revision ";
        g_version_str += llvm_rev;
      }
-+    g_version_str += "\n  cangjie 1.0.0 ";
++    g_version_str += "\n  cangjie 1.0.5 ";
    }
  
    return g_version_str.c_str();
@@ -69811,7 +69811,7 @@ index 1f5bc69ac..731913aba 100644
    ++NumCallSlot;
    return true;
 diff --git a/llvm/lib/Transforms/Scalar/PlaceSafepoints.cpp b/llvm/lib/Transforms/Scalar/PlaceSafepoints.cpp
-index e1cc3fc71..a0cad3cb8 100644
+index e1cc3fc71..798487a6c 100644
 --- a/llvm/lib/Transforms/Scalar/PlaceSafepoints.cpp
 +++ b/llvm/lib/Transforms/Scalar/PlaceSafepoints.cpp
 @@ -47,16 +47,20 @@
@@ -69868,7 +69868,7 @@ index e1cc3fc71..a0cad3cb8 100644
  namespace {
  
  /// An analysis pass whose purpose is to identify each of the backedges in
-@@ -150,20 +167,87 @@ struct PlaceBackedgeSafepointsImpl : public FunctionPass {
+@@ -150,20 +167,88 @@ struct PlaceBackedgeSafepointsImpl : public FunctionPass {
      AU.setPreservesAll();
    }
  };
@@ -69903,8 +69903,9 @@ index e1cc3fc71..a0cad3cb8 100644
 +      cast<Function>(M.getOrInsertFunction(GCSafeStr, FuncType).getCallee());
 +  BasicBlock *BB = BasicBlock::Create(M.getContext(), "entry", DoSafepointFun);
 +  IRBuilder<> builder(BB);
++  CallInst *Call = builder.CreateCall(MCCYieldFun);
 +  if (!Triple(M.getTargetTriple()).isARM())
-+    builder.CreateCall(MCCYieldFun)->setCallingConv(CallingConv::CangjieGC);
++    Call->setCallingConv(CallingConv::CangjieGC);
 +  builder.CreateRetVoid();
 +
 +  GlobalVariable *CJFuncGV = cast<GlobalVariable>(M.getOrInsertGlobal(
@@ -69961,7 +69962,7 @@ index e1cc3fc71..a0cad3cb8 100644
  
    void getAnalysisUsage(AnalysisUsage &AU) const override {
      // We modify the graph wholesale (inlining, block insertion, etc).  We
-@@ -172,7 +256,7 @@ struct PlaceSafepoints : public FunctionPass {
+@@ -172,7 +257,7 @@ struct PlaceSafepoints : public FunctionPass {
      AU.addRequired<TargetLibraryInfoWrapperPass>();
    }
  };
@@ -69970,7 +69971,7 @@ index e1cc3fc71..a0cad3cb8 100644
  
  // Insert a safepoint poll immediately before the given instruction.  Does
  // not handle the parsability of state at the runtime call, that's the
-@@ -182,6 +266,14 @@ InsertSafepointPoll(Instruction *InsertBefore,
+@@ -182,6 +267,14 @@ InsertSafepointPoll(Instruction *InsertBefore,
                      std::vector<CallBase *> &ParsePointsNeeded /*rval*/,
                      const TargetLibraryInfo &TLI);
  
@@ -69985,7 +69986,7 @@ index e1cc3fc71..a0cad3cb8 100644
  static bool needsStatepoint(CallBase *Call, const TargetLibraryInfo &TLI) {
    if (callsGCLeafFunction(Call, TLI))
      return false;
-@@ -189,7 +281,12 @@ static bool needsStatepoint(CallBase *Call, const TargetLibraryInfo &TLI) {
+@@ -189,7 +282,12 @@ static bool needsStatepoint(CallBase *Call, const TargetLibraryInfo &TLI) {
      if (CI->isInlineAsm())
        return false;
    }
@@ -69999,7 +70000,7 @@ index e1cc3fc71..a0cad3cb8 100644
    return !(isa<GCStatepointInst>(Call) || isa<GCRelocateInst>(Call) ||
             isa<GCResultInst>(Call));
  }
-@@ -224,7 +321,9 @@ static bool containsUnconditionalCallSafepoint(Loop *L, BasicBlock *Header,
+@@ -224,7 +322,9 @@ static bool containsUnconditionalCallSafepoint(Loop *L, BasicBlock *Header,
          // unconditional poll. In practice, this is only a theoretical concern
          // since we don't have any methods with conditional-only safepoint
          // polls.
@@ -70010,7 +70011,7 @@ index e1cc3fc71..a0cad3cb8 100644
            return true;
      }
  
-@@ -236,6 +335,71 @@ static bool containsUnconditionalCallSafepoint(Loop *L, BasicBlock *Header,
+@@ -236,6 +336,71 @@ static bool containsUnconditionalCallSafepoint(Loop *L, BasicBlock *Header,
    return false;
  }
  
@@ -70082,7 +70083,7 @@ index e1cc3fc71..a0cad3cb8 100644
  /// Returns true if this loop is known to terminate in a finite number of
  /// iterations.  Note that this function may return false for a loop which
  /// does actual terminate in a finite constant number of iterations due to
-@@ -322,10 +486,19 @@ bool PlaceBackedgeSafepointsImpl::runOnLoop(Loop *L) {
+@@ -322,10 +487,19 @@ bool PlaceBackedgeSafepointsImpl::runOnLoop(Loop *L) {
      // not.  Note that this is about unburdening the optimizer in loops, not
      // avoiding the runtime cost of the actual safepoint.
      if (!AllBackedges) {
@@ -70106,7 +70107,7 @@ index e1cc3fc71..a0cad3cb8 100644
        }
        if (CallSafepointsEnabled &&
            containsUnconditionalCallSafepoint(L, Header, Pred, *DT, *TLI)) {
-@@ -363,9 +536,14 @@ bool PlaceBackedgeSafepointsImpl::runOnLoop(Loop *L) {
+@@ -363,9 +537,14 @@ bool PlaceBackedgeSafepointsImpl::runOnLoop(Loop *L) {
  static bool doesNotRequireEntrySafepointBefore(CallBase *Call) {
    if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(Call)) {
      switch (II->getIntrinsicID()) {
@@ -70121,7 +70122,7 @@ index e1cc3fc71..a0cad3cb8 100644
        // The can wrap an actual call which may grow the stack by an unbounded
        // amount or run forever.
        return false;
-@@ -380,6 +558,11 @@ static bool doesNotRequireEntrySafepointBefore(CallBase *Call) {
+@@ -380,6 +559,11 @@ static bool doesNotRequireEntrySafepointBefore(CallBase *Call) {
        return true;
      }
    }
@@ -70133,7 +70134,7 @@ index e1cc3fc71..a0cad3cb8 100644
    return false;
  }
  
-@@ -451,6 +634,11 @@ static bool shouldRewriteFunction(Function &F) {
+@@ -451,6 +635,11 @@ static bool shouldRewriteFunction(Function &F) {
      const auto &FunctionGCName = F.getGC();
      const StringRef StatepointExampleName("statepoint-example");
      const StringRef CoreCLRName("coreclr");
@@ -70145,7 +70146,7 @@ index e1cc3fc71..a0cad3cb8 100644
      return (StatepointExampleName == FunctionGCName) ||
             (CoreCLRName == FunctionGCName);
    } else
-@@ -463,7 +651,24 @@ static bool enableEntrySafepoints(Function &F) { return !NoEntry; }
+@@ -463,7 +652,24 @@ static bool enableEntrySafepoints(Function &F) { return !NoEntry; }
  static bool enableBackedgeSafepoints(Function &F) { return !NoBackedge; }
  static bool enableCallSafepoints(Function &F) { return !NoCall; }
  
@@ -70171,7 +70172,7 @@ index e1cc3fc71..a0cad3cb8 100644
    if (F.isDeclaration() || F.empty()) {
      // This is a declaration, nothing to do.  Must exit early to avoid crash in
      // dom tree calculation
-@@ -480,9 +685,6 @@ bool PlaceSafepoints::runOnFunction(Function &F) {
+@@ -480,9 +686,6 @@ bool PlaceSafepoints::runOnFunction(Function &F) {
    if (!shouldRewriteFunction(F))
      return false;
  
@@ -70181,7 +70182,7 @@ index e1cc3fc71..a0cad3cb8 100644
    bool Modified = false;
  
    // In various bits below, we rely on the fact that uses are reachable from
-@@ -588,6 +790,9 @@ bool PlaceSafepoints::runOnFunction(Function &F) {
+@@ -588,6 +791,9 @@ bool PlaceSafepoints::runOnFunction(Function &F) {
    // Now that we've identified all the needed safepoint poll locations, insert
    // safepoint polls themselves.
    for (Instruction *PollLocation : PollsNeeded) {
@@ -70191,7 +70192,7 @@ index e1cc3fc71..a0cad3cb8 100644
      std::vector<CallBase *> RuntimeCalls;
      InsertSafepointPoll(PollLocation, RuntimeCalls, TLI);
      llvm::append_range(ParsePointNeeded, RuntimeCalls);
-@@ -596,11 +801,38 @@ bool PlaceSafepoints::runOnFunction(Function &F) {
+@@ -596,11 +802,38 @@ bool PlaceSafepoints::runOnFunction(Function &F) {
    return Modified;
  }
  
@@ -70233,7 +70234,7 @@ index e1cc3fc71..a0cad3cb8 100644
  }
  
  INITIALIZE_PASS_BEGIN(PlaceBackedgeSafepointsImpl,
-@@ -613,10 +845,11 @@ INITIALIZE_PASS_END(PlaceBackedgeSafepointsImpl,
+@@ -613,10 +846,11 @@ INITIALIZE_PASS_END(PlaceBackedgeSafepointsImpl,
                      "place-backedge-safepoints-impl",
                      "Place Backedge Safepoints", false, false)
  
