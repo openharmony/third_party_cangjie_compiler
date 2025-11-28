@@ -5331,7 +5331,7 @@ index 8d3e4cde5..0f65c217c 100644
    /// linker each time a module is loaded or unloaded.
    bool SetRendezvousBreakpoint();
 diff --git a/lldb/source/Plugins/DynamicLoader/Windows-DYLD/DynamicLoaderWindowsDYLD.cpp b/lldb/source/Plugins/DynamicLoader/Windows-DYLD/DynamicLoaderWindowsDYLD.cpp
-index fa6356963..023aff5b5 100644
+index fa6356963..b20179c27 100644
 --- a/lldb/source/Plugins/DynamicLoader/Windows-DYLD/DynamicLoaderWindowsDYLD.cpp
 +++ b/lldb/source/Plugins/DynamicLoader/Windows-DYLD/DynamicLoaderWindowsDYLD.cpp
 @@ -174,7 +174,7 @@ ThreadPlanSP
@@ -5343,17 +5343,20 @@ index fa6356963..023aff5b5 100644
      return ThreadPlanSP();
    }
  
-@@ -204,7 +204,9 @@ DynamicLoaderWindowsDYLD::GetStepThroughTrampolinePlan(Thread &thread,
+@@ -204,8 +204,11 @@ DynamicLoaderWindowsDYLD::GetStepThroughTrampolinePlan(Thread &thread,
  
    ExecutionContext exe_ctx(m_process->GetTarget());
    if (first_insn == nullptr || second_insn == nullptr ||
 -      strcmp(first_insn->GetMnemonic(&exe_ctx), "jmpl") != 0 ||
+-      strcmp(second_insn->GetMnemonic(&exe_ctx), "nop") != 0) {
 +      (strcmp(first_insn->GetMnemonic(&exe_ctx), "jmpl") != 0 &&
 +      strcmp(first_insn->GetMnemonic(&exe_ctx), "jmpq") != 0 &&
 +      strcmp(first_insn->GetMnemonic(&exe_ctx), "jmp") != 0) ||
-       strcmp(second_insn->GetMnemonic(&exe_ctx), "nop") != 0) {
++      (strcmp(second_insn->GetMnemonic(&exe_ctx), "nop") != 0 &&
++      strcmp(second_insn->GetMnemonic(&exe_ctx), "int3") != 0)) {
      return ThreadPlanSP();
    }
+ 
 diff --git a/lldb/source/Plugins/ExpressionParser/CMakeLists.txt b/lldb/source/Plugins/ExpressionParser/CMakeLists.txt
 index 17c40aee4..ed3c21b97 100644
 --- a/lldb/source/Plugins/ExpressionParser/CMakeLists.txt
@@ -18947,7 +18950,7 @@ index b2f1318ca..99ad0427a 100644
      LanguageRuntime *runtime = GetLanguageRuntime(known_type);
      return runtime ? runtime->CouldHaveDynamicValue(in_value) : false;
 diff --git a/lldb/source/Target/RegisterContextUnwind.cpp b/lldb/source/Target/RegisterContextUnwind.cpp
-index 2da40ba2b..8ca01a5c4 100644
+index 2da40ba2b..9b9073ac7 100644
 --- a/lldb/source/Target/RegisterContextUnwind.cpp
 +++ b/lldb/source/Target/RegisterContextUnwind.cpp
 @@ -106,6 +106,33 @@ bool RegisterContextUnwind::IsUnwindPlanValidForCurrentPC(
@@ -19004,21 +19007,22 @@ index 2da40ba2b..8ca01a5c4 100644
    if (m_sym_ctx.symbol) {
      UnwindLogMsg("with pc value of 0x%" PRIx64 ", symbol name is '%s'", pc,
                   GetSymbolOrFunctionName(m_sym_ctx).AsCString(""));
-@@ -953,6 +982,13 @@ UnwindPlanSP RegisterContextUnwind::GetFullUnwindPlanForFrame() {
+@@ -953,6 +982,14 @@ UnwindPlanSP RegisterContextUnwind::GetFullUnwindPlanForFrame() {
    if (m_behaves_like_zeroth_frame && process) {
      unwind_plan_sp = func_unwinders_sp->GetUnwindPlanAtNonCallSite(
          process->GetTarget(), m_thread);
 +#if defined(_WIN32)
 +    auto symbol_name = GetSymbolOrFunctionName(m_sym_ctx);
 +    if (symbol_name == "CJ_MCC_C2NStub" || symbol_name == "CJ_MCC_N2CStub" ||
-+        symbol_name == "CJ_MCC_NewObjectFast" || symbol_name == "CJ_MCC_NewFinalizerFast") {
++        symbol_name == "CJ_MCC_NewObjectFast" || symbol_name == "CJ_MCC_NewFinalizerFast" ||
++        symbol_name == "unwindPCForC2NStub") {
 +      unwind_plan_sp = func_unwinders_sp->GetAssemblyUnwindPlan(process->GetTarget(), m_thread);
 +    }
 +#endif
      if (unwind_plan_sp && unwind_plan_sp->PlanValidAtAddress(m_current_pc)) {
        if (unwind_plan_sp->GetSourcedFromCompiler() == eLazyBoolNo) {
          // We probably have an UnwindPlan created by inspecting assembly
-@@ -1222,7 +1258,7 @@ bool RegisterContextUnwind::IsTrapHandlerSymbol(
+@@ -1222,7 +1259,7 @@ bool RegisterContextUnwind::IsTrapHandlerSymbol(
      const std::vector<ConstString> trap_handler_names(
          platform_sp->GetTrapHandlerSymbolNames());
      for (ConstString name : trap_handler_names) {
@@ -19027,7 +19031,7 @@ index 2da40ba2b..8ca01a5c4 100644
            (m_sym_ctx.symbol && m_sym_ctx.symbol->GetName() == name)) {
          return true;
        }
-@@ -1231,7 +1267,7 @@ bool RegisterContextUnwind::IsTrapHandlerSymbol(
+@@ -1231,7 +1268,7 @@ bool RegisterContextUnwind::IsTrapHandlerSymbol(
    const std::vector<ConstString> user_specified_trap_handler_names(
        m_parent_unwind.GetUserSpecifiedTrapHandlerFunctionNames());
    for (ConstString name : user_specified_trap_handler_names) {
@@ -19036,7 +19040,7 @@ index 2da40ba2b..8ca01a5c4 100644
          (m_sym_ctx.symbol && m_sym_ctx.symbol->GetName() == name)) {
        return true;
      }
-@@ -2120,6 +2156,10 @@ bool RegisterContextUnwind::ReadGPRValue(lldb::RegisterKind register_kind,
+@@ -2120,6 +2157,10 @@ bool RegisterContextUnwind::ReadGPRValue(lldb::RegisterKind register_kind,
    // if this is frame 0 (currently executing frame), get the requested reg
    // contents from the actual thread registers
    if (IsFrameZero()) {
@@ -19526,7 +19530,7 @@ index 19e00e111..324854824 100644
      if (llvm::Expected<APFloat::opStatus> op =
              f.convertFromString(value_str, APFloat::rmNearestTiesToEven)) {
 diff --git a/lldb/source/Version/Version.cpp b/lldb/source/Version/Version.cpp
-index b391fe1ea..8e2233346 100644
+index b391fe1ea..a552a817a 100644
 --- a/lldb/source/Version/Version.cpp
 +++ b/lldb/source/Version/Version.cpp
 @@ -4,6 +4,12 @@
@@ -19582,7 +19586,7 @@ index b391fe1ea..8e2233346 100644
        g_version_str += "\n  llvm revision ";
        g_version_str += llvm_rev;
      }
-+    g_version_str += "\n  cangjie 1.1.0-beta.2";
++    g_version_str += "\n  cangjie 1.1.0-beta.4";
    }
  
    return g_version_str.c_str();
