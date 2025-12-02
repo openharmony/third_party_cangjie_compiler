@@ -5331,7 +5331,7 @@ index 8d3e4cde5..0f65c217c 100644
    /// linker each time a module is loaded or unloaded.
    bool SetRendezvousBreakpoint();
 diff --git a/lldb/source/Plugins/DynamicLoader/Windows-DYLD/DynamicLoaderWindowsDYLD.cpp b/lldb/source/Plugins/DynamicLoader/Windows-DYLD/DynamicLoaderWindowsDYLD.cpp
-index fa6356963..b20179c27 100644
+index fa6356963..023aff5b5 100644
 --- a/lldb/source/Plugins/DynamicLoader/Windows-DYLD/DynamicLoaderWindowsDYLD.cpp
 +++ b/lldb/source/Plugins/DynamicLoader/Windows-DYLD/DynamicLoaderWindowsDYLD.cpp
 @@ -174,7 +174,7 @@ ThreadPlanSP
@@ -5343,20 +5343,17 @@ index fa6356963..b20179c27 100644
      return ThreadPlanSP();
    }
  
-@@ -204,8 +204,11 @@ DynamicLoaderWindowsDYLD::GetStepThroughTrampolinePlan(Thread &thread,
+@@ -204,7 +204,9 @@ DynamicLoaderWindowsDYLD::GetStepThroughTrampolinePlan(Thread &thread,
  
    ExecutionContext exe_ctx(m_process->GetTarget());
    if (first_insn == nullptr || second_insn == nullptr ||
 -      strcmp(first_insn->GetMnemonic(&exe_ctx), "jmpl") != 0 ||
--      strcmp(second_insn->GetMnemonic(&exe_ctx), "nop") != 0) {
 +      (strcmp(first_insn->GetMnemonic(&exe_ctx), "jmpl") != 0 &&
 +      strcmp(first_insn->GetMnemonic(&exe_ctx), "jmpq") != 0 &&
 +      strcmp(first_insn->GetMnemonic(&exe_ctx), "jmp") != 0) ||
-+      (strcmp(second_insn->GetMnemonic(&exe_ctx), "nop") != 0 &&
-+      strcmp(second_insn->GetMnemonic(&exe_ctx), "int3") != 0)) {
+       strcmp(second_insn->GetMnemonic(&exe_ctx), "nop") != 0) {
      return ThreadPlanSP();
    }
- 
 diff --git a/lldb/source/Plugins/ExpressionParser/CMakeLists.txt b/lldb/source/Plugins/ExpressionParser/CMakeLists.txt
 index 17c40aee4..ed3c21b97 100644
 --- a/lldb/source/Plugins/ExpressionParser/CMakeLists.txt
@@ -18950,7 +18947,7 @@ index b2f1318ca..99ad0427a 100644
      LanguageRuntime *runtime = GetLanguageRuntime(known_type);
      return runtime ? runtime->CouldHaveDynamicValue(in_value) : false;
 diff --git a/lldb/source/Target/RegisterContextUnwind.cpp b/lldb/source/Target/RegisterContextUnwind.cpp
-index 2da40ba2b..9b9073ac7 100644
+index 2da40ba2b..8ca01a5c4 100644
 --- a/lldb/source/Target/RegisterContextUnwind.cpp
 +++ b/lldb/source/Target/RegisterContextUnwind.cpp
 @@ -106,6 +106,33 @@ bool RegisterContextUnwind::IsUnwindPlanValidForCurrentPC(
@@ -19007,22 +19004,21 @@ index 2da40ba2b..9b9073ac7 100644
    if (m_sym_ctx.symbol) {
      UnwindLogMsg("with pc value of 0x%" PRIx64 ", symbol name is '%s'", pc,
                   GetSymbolOrFunctionName(m_sym_ctx).AsCString(""));
-@@ -953,6 +982,14 @@ UnwindPlanSP RegisterContextUnwind::GetFullUnwindPlanForFrame() {
+@@ -953,6 +982,13 @@ UnwindPlanSP RegisterContextUnwind::GetFullUnwindPlanForFrame() {
    if (m_behaves_like_zeroth_frame && process) {
      unwind_plan_sp = func_unwinders_sp->GetUnwindPlanAtNonCallSite(
          process->GetTarget(), m_thread);
 +#if defined(_WIN32)
 +    auto symbol_name = GetSymbolOrFunctionName(m_sym_ctx);
 +    if (symbol_name == "CJ_MCC_C2NStub" || symbol_name == "CJ_MCC_N2CStub" ||
-+        symbol_name == "CJ_MCC_NewObjectFast" || symbol_name == "CJ_MCC_NewFinalizerFast" ||
-+        symbol_name == "unwindPCForC2NStub") {
++        symbol_name == "CJ_MCC_NewObjectFast" || symbol_name == "CJ_MCC_NewFinalizerFast") {
 +      unwind_plan_sp = func_unwinders_sp->GetAssemblyUnwindPlan(process->GetTarget(), m_thread);
 +    }
 +#endif
      if (unwind_plan_sp && unwind_plan_sp->PlanValidAtAddress(m_current_pc)) {
        if (unwind_plan_sp->GetSourcedFromCompiler() == eLazyBoolNo) {
          // We probably have an UnwindPlan created by inspecting assembly
-@@ -1222,7 +1259,7 @@ bool RegisterContextUnwind::IsTrapHandlerSymbol(
+@@ -1222,7 +1258,7 @@ bool RegisterContextUnwind::IsTrapHandlerSymbol(
      const std::vector<ConstString> trap_handler_names(
          platform_sp->GetTrapHandlerSymbolNames());
      for (ConstString name : trap_handler_names) {
@@ -19031,7 +19027,7 @@ index 2da40ba2b..9b9073ac7 100644
            (m_sym_ctx.symbol && m_sym_ctx.symbol->GetName() == name)) {
          return true;
        }
-@@ -1231,7 +1268,7 @@ bool RegisterContextUnwind::IsTrapHandlerSymbol(
+@@ -1231,7 +1267,7 @@ bool RegisterContextUnwind::IsTrapHandlerSymbol(
    const std::vector<ConstString> user_specified_trap_handler_names(
        m_parent_unwind.GetUserSpecifiedTrapHandlerFunctionNames());
    for (ConstString name : user_specified_trap_handler_names) {
@@ -19040,7 +19036,7 @@ index 2da40ba2b..9b9073ac7 100644
          (m_sym_ctx.symbol && m_sym_ctx.symbol->GetName() == name)) {
        return true;
      }
-@@ -2120,6 +2157,10 @@ bool RegisterContextUnwind::ReadGPRValue(lldb::RegisterKind register_kind,
+@@ -2120,6 +2156,10 @@ bool RegisterContextUnwind::ReadGPRValue(lldb::RegisterKind register_kind,
    // if this is frame 0 (currently executing frame), get the requested reg
    // contents from the actual thread registers
    if (IsFrameZero()) {
@@ -19530,7 +19526,7 @@ index 19e00e111..324854824 100644
      if (llvm::Expected<APFloat::opStatus> op =
              f.convertFromString(value_str, APFloat::rmNearestTiesToEven)) {
 diff --git a/lldb/source/Version/Version.cpp b/lldb/source/Version/Version.cpp
-index b391fe1ea..a552a817a 100644
+index b391fe1ea..26614093b 100644
 --- a/lldb/source/Version/Version.cpp
 +++ b/lldb/source/Version/Version.cpp
 @@ -4,6 +4,12 @@
@@ -19586,7 +19582,7 @@ index b391fe1ea..a552a817a 100644
        g_version_str += "\n  llvm revision ";
        g_version_str += llvm_rev;
      }
-+    g_version_str += "\n  cangjie 1.1.0-beta.4";
++    g_version_str += "\n  cangjie 1.0.6 ";
    }
  
    return g_version_str.c_str();
@@ -70398,7 +70394,7 @@ index 2282ef636..639003664 100644
        continue;
      LLVM_DEBUG(dbgs() << "Found that GV '" << GV->getName()
 diff --git a/llvm/lib/Transforms/Scalar/SROA.cpp b/llvm/lib/Transforms/Scalar/SROA.cpp
-index 644c5c82e..c11255e19 100644
+index 644c5c82e..9453ef48a 100644
 --- a/llvm/lib/Transforms/Scalar/SROA.cpp
 +++ b/llvm/lib/Transforms/Scalar/SROA.cpp
 @@ -65,6 +65,7 @@
@@ -70739,18 +70735,7 @@ index 644c5c82e..c11255e19 100644
        if (auto *LI = dyn_cast<LoadInst>(S.getUse()->getUser()))
          CheckCandidateType(LI->getType());
        else if (auto *SI = dyn_cast<StoreInst>(S.getUse()->getUser()))
-@@ -2346,6 +2469,10 @@ public:
-     LLVM_DEBUG(AS.printSlice(dbgs(), I, ""));
-     LLVM_DEBUG(dbgs() << "\n");
- 
-+    // Cannot perform SROA on disjoint slice and partition ranges.
-+    if (EndOffset == NewAllocaBeginOffset)
-+      return false;
-+
-     // Compute the intersecting offset range.
-     assert(BeginOffset < NewAllocaEndOffset);
-     assert(EndOffset > NewAllocaBeginOffset);
-@@ -2360,8 +2487,8 @@ public:
+@@ -2360,8 +2483,8 @@ public:
      Instruction *OldUserI = cast<Instruction>(OldUse->getUser());
      IRB.SetInsertPoint(OldUserI);
      IRB.SetCurrentDebugLocation(OldUserI->getDebugLoc());
@@ -70761,7 +70746,7 @@ index 644c5c82e..c11255e19 100644
  
      CanSROA &= visit(cast<Instruction>(OldUse->getUser()));
      if (VecTy || IntTy)
-@@ -2414,7 +2541,7 @@ private:
+@@ -2414,7 +2537,7 @@ private:
  #else
                            Twine()
  #endif
@@ -70770,7 +70755,7 @@ index 644c5c82e..c11255e19 100644
    }
  
    /// Compute suitable alignment to access this slice of the *new*
-@@ -2508,6 +2635,9 @@ private:
+@@ -2508,6 +2631,9 @@ private:
                                                LI.getName());
        if (AATags)
          NewLI->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
@@ -70780,7 +70765,7 @@ index 644c5c82e..c11255e19 100644
        if (LI.isVolatile())
          NewLI->setAtomic(LI.getOrdering(), LI.getSyncScopeID());
        if (NewLI->isAtomic())
-@@ -2547,6 +2677,8 @@ private:
+@@ -2547,6 +2673,8 @@ private:
                                  getSliceAlign(), LI.isVolatile(), LI.getName());
        if (AATags)
          NewLI->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
@@ -70789,7 +70774,7 @@ index 644c5c82e..c11255e19 100644
        if (LI.isVolatile())
          NewLI->setAtomic(LI.getOrdering(), LI.getSyncScopeID());
        NewLI->copyMetadata(LI, {LLVMContext::MD_mem_parallel_loop_access,
-@@ -2614,6 +2746,8 @@ private:
+@@ -2614,6 +2742,8 @@ private:
                               LLVMContext::MD_access_group});
      if (AATags)
        Store->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
@@ -70798,7 +70783,7 @@ index 644c5c82e..c11255e19 100644
      Pass.DeadInsts.push_back(&SI);
  
      LLVM_DEBUG(dbgs() << "          to: " << *Store << "\n");
-@@ -2638,6 +2772,8 @@ private:
+@@ -2638,6 +2768,8 @@ private:
                               LLVMContext::MD_access_group});
      if (AATags)
        Store->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
@@ -70807,7 +70792,7 @@ index 644c5c82e..c11255e19 100644
      Pass.DeadInsts.push_back(&SI);
      LLVM_DEBUG(dbgs() << "          to: " << *Store << "\n");
      return true;
-@@ -2706,6 +2842,8 @@ private:
+@@ -2706,6 +2838,8 @@ private:
                               LLVMContext::MD_access_group});
      if (AATags)
        NewSI->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
@@ -70816,7 +70801,7 @@ index 644c5c82e..c11255e19 100644
      if (SI.isVolatile())
        NewSI->setAtomic(SI.getOrdering(), SI.getSyncScopeID());
      if (NewSI->isAtomic())
-@@ -2779,8 +2917,7 @@ private:
+@@ -2779,8 +2913,7 @@ private:
      const bool CanContinue = [&]() {
        if (VecTy || IntTy)
          return true;
@@ -70826,7 +70811,7 @@ index 644c5c82e..c11255e19 100644
          return false;
        // Length must be in range for FixedVectorType.
        auto *C = cast<ConstantInt>(II.getLength());
-@@ -2793,14 +2930,20 @@ private:
+@@ -2793,14 +2926,20 @@ private:
               DL.isLegalInteger(DL.getTypeSizeInBits(ScalarTy).getFixedSize());
      }();
  
@@ -70850,7 +70835,7 @@ index 644c5c82e..c11255e19 100644
        if (AATags)
          New->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
        LLVM_DEBUG(dbgs() << "          to: " << *New << "\n");
-@@ -2874,6 +3017,8 @@ private:
+@@ -2874,6 +3013,8 @@ private:
                             LLVMContext::MD_access_group});
      if (AATags)
        New->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
@@ -70859,7 +70844,7 @@ index 644c5c82e..c11255e19 100644
      LLVM_DEBUG(dbgs() << "          to: " << *New << "\n");
      return !II.isVolatile();
    }
-@@ -2904,8 +3049,7 @@ private:
+@@ -2904,8 +3045,7 @@ private:
        if (IsDest) {
          II.setDest(AdjustedPtr);
          II.setDestAlignment(SliceAlign);
@@ -70869,7 +70854,7 @@ index 644c5c82e..c11255e19 100644
          II.setSource(AdjustedPtr);
          II.setSourceAlignment(SliceAlign);
        }
-@@ -3050,6 +3194,8 @@ private:
+@@ -3050,6 +3190,8 @@ private:
                                LLVMContext::MD_access_group});
        if (AATags)
          Load->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
@@ -70878,7 +70863,7 @@ index 644c5c82e..c11255e19 100644
        Src = Load;
      }
  
-@@ -3072,6 +3218,8 @@ private:
+@@ -3072,6 +3214,8 @@ private:
                               LLVMContext::MD_access_group});
      if (AATags)
        Store->setAAMetadata(AATags.shift(NewBeginOffset - BeginOffset));
@@ -70887,7 +70872,7 @@ index 644c5c82e..c11255e19 100644
      LLVM_DEBUG(dbgs() << "          to: " << *Store << "\n");
      return !II.isVolatile();
    }
-@@ -3108,7 +3256,8 @@ private:
+@@ -3108,7 +3252,8 @@ private:
                           NewEndOffset - NewBeginOffset);
      // Lifetime intrinsics always expect an i8* so directly get such a pointer
      // for the new alloca slice.
@@ -70897,7 +70882,7 @@ index 644c5c82e..c11255e19 100644
      Value *Ptr = getNewAllocaSlicePtr(IRB, PointerTy);
      Value *New;
      if (II.getIntrinsicID() == Intrinsic::lifetime_start)
-@@ -3381,9 +3530,12 @@ private:
+@@ -3381,9 +3526,12 @@ private:
  
        APInt Offset(
            DL.getIndexSizeInBits(Ptr->getType()->getPointerAddressSpace()), 0);
@@ -70912,7 +70897,7 @@ index 644c5c82e..c11255e19 100644
  
        Agg = IRB.CreateInsertValue(Agg, Load, Indices, Name + ".insert");
        LLVM_DEBUG(dbgs() << "          to: " << *Load << "\n");
-@@ -3432,9 +3584,12 @@ private:
+@@ -3432,9 +3580,12 @@ private:
  
        APInt Offset(
            DL.getIndexSizeInBits(Ptr->getType()->getPointerAddressSpace()), 0);
@@ -70927,7 +70912,7 @@ index 644c5c82e..c11255e19 100644
  
        LLVM_DEBUG(dbgs() << "          to: " << *Store << "\n");
      }
-@@ -3475,8 +3630,8 @@ private:
+@@ -3475,8 +3626,8 @@ private:
      SelectInst *Sel = cast<SelectInst>(GEPI.getPointerOperand());
  
      LLVM_DEBUG(dbgs() << "  Rewriting gep(select) -> select(gep):"
@@ -70938,7 +70923,7 @@ index 644c5c82e..c11255e19 100644
  
      IRB.SetInsertPoint(&GEPI);
      SmallVector<Value *, 4> Index(GEPI.indices());
-@@ -3501,9 +3656,8 @@ private:
+@@ -3501,9 +3652,8 @@ private:
      Visited.insert(NSelI);
      enqueueUsers(*NSelI);
  
@@ -70950,7 +70935,7 @@ index 644c5c82e..c11255e19 100644
  
      return true;
    }
-@@ -3524,15 +3678,15 @@ private:
+@@ -3524,15 +3674,15 @@ private:
        return false;
  
      LLVM_DEBUG(dbgs() << "  Rewriting gep(phi) -> phi(gep):"
@@ -70971,7 +70956,7 @@ index 644c5c82e..c11255e19 100644
      for (unsigned I = 0, E = PHI->getNumIncomingValues(); I != E; ++I) {
        BasicBlock *B = PHI->getIncomingBlock(I);
        Value *NewVal = nullptr;
-@@ -3556,20 +3710,19 @@ private:
+@@ -3556,20 +3706,19 @@ private:
      Visited.insert(NewPN);
      enqueueUsers(*NewPN);
  
@@ -70997,7 +70982,7 @@ index 644c5c82e..c11255e19 100644
        return true;
  
      enqueueUsers(GEPI);
-@@ -3619,6 +3772,68 @@ static Type *stripAggregateTypeWrapping(const DataLayout &DL, Type *Ty) {
+@@ -3619,6 +3768,68 @@ static Type *stripAggregateTypeWrapping(const DataLayout &DL, Type *Ty) {
    return stripAggregateTypeWrapping(DL, InnerTy);
  }
  
@@ -71066,7 +71051,7 @@ index 644c5c82e..c11255e19 100644
  /// Try to find a partition of the aggregate type passed in for a given
  /// offset and size.
  ///
-@@ -3641,17 +3856,17 @@ static Type *getTypePartition(const DataLayout &DL, Type *Ty, uint64_t Offset,
+@@ -3641,17 +3852,17 @@ static Type *getTypePartition(const DataLayout &DL, Type *Ty, uint64_t Offset,
      return nullptr;
  
    if (isa<ArrayType>(Ty) || isa<VectorType>(Ty)) {
@@ -71095,7 +71080,7 @@ index 644c5c82e..c11255e19 100644
      }
      uint64_t ElementSize = DL.getTypeAllocSize(ElementTy).getFixedSize();
      uint64_t NumSkippedElements = Offset / ElementSize;
-@@ -3694,20 +3909,32 @@ static Type *getTypePartition(const DataLayout &DL, Type *Ty, uint64_t Offset,
+@@ -3694,20 +3905,32 @@ static Type *getTypePartition(const DataLayout &DL, Type *Ty, uint64_t Offset,
  
    Type *ElementTy = STy->getElementType(Index);
    uint64_t ElementSize = DL.getTypeAllocSize(ElementTy).getFixedSize();
@@ -71131,7 +71116,7 @@ index 644c5c82e..c11255e19 100644
    StructType::element_iterator EI = STy->element_begin() + Index,
                                 EE = STy->element_end();
    if (EndOffset < SL->getSizeInBytes()) {
-@@ -3717,10 +3944,12 @@ static Type *getTypePartition(const DataLayout &DL, Type *Ty, uint64_t Offset,
+@@ -3717,10 +3940,12 @@ static Type *getTypePartition(const DataLayout &DL, Type *Ty, uint64_t Offset,
  
      // Don't try to form "natural" types if the elements don't line up with the
      // expected size.
@@ -71147,7 +71132,7 @@ index 644c5c82e..c11255e19 100644
  
      assert(Index < EndIndex);
      EE = STy->element_begin() + EndIndex;
-@@ -3730,8 +3959,12 @@ static Type *getTypePartition(const DataLayout &DL, Type *Ty, uint64_t Offset,
+@@ -3730,8 +3955,12 @@ static Type *getTypePartition(const DataLayout &DL, Type *Ty, uint64_t Offset,
    StructType *SubTy =
        StructType::get(STy->getContext(), makeArrayRef(EI, EE), STy->isPacked());
    const StructLayout *SubSL = DL.getStructLayout(SubTy);
@@ -71162,7 +71147,7 @@ index 644c5c82e..c11255e19 100644
  
    return SubTy;
  }
-@@ -4395,6 +4628,20 @@ AllocaInst *SROAPass::rewritePartition(AllocaInst &AI, AllocaSlices &AS,
+@@ -4395,6 +4624,20 @@ AllocaInst *SROAPass::rewritePartition(AllocaInst &AI, AllocaSlices &AS,
    return NewAI;
  }
  
@@ -71183,7 +71168,7 @@ index 644c5c82e..c11255e19 100644
  /// Walks the slices of an alloca and form partitions based on them,
  /// rewriting each of their uses.
  bool SROAPass::splitAlloca(AllocaInst &AI, AllocaSlices &AS) {
-@@ -4405,6 +4652,13 @@ bool SROAPass::splitAlloca(AllocaInst &AI, AllocaSlices &AS) {
+@@ -4405,6 +4648,13 @@ bool SROAPass::splitAlloca(AllocaInst &AI, AllocaSlices &AS) {
    bool Changed = false;
    const DataLayout &DL = AI.getModule()->getDataLayout();
  
@@ -71197,7 +71182,7 @@ index 644c5c82e..c11255e19 100644
    // First try to pre-split loads and stores.
    Changed |= presplitLoadsAndStores(AI, AS);
  
-@@ -4442,8 +4696,7 @@ bool SROAPass::splitAlloca(AllocaInst &AI, AllocaSlices &AS) {
+@@ -4442,8 +4692,7 @@ bool SROAPass::splitAlloca(AllocaInst &AI, AllocaSlices &AS) {
          IsSorted = false;
        }
      }
@@ -71207,7 +71192,7 @@ index 644c5c82e..c11255e19 100644
      // We only allow whole-alloca splittable loads and stores
      // for a large alloca to avoid creating too large BitVector.
      for (Slice &S : AS) {
-@@ -4471,7 +4724,7 @@ bool SROAPass::splitAlloca(AllocaInst &AI, AllocaSlices &AS) {
+@@ -4471,7 +4720,7 @@ bool SROAPass::splitAlloca(AllocaInst &AI, AllocaSlices &AS) {
      uint64_t Offset;
      uint64_t Size;
      Fragment(AllocaInst *AI, uint64_t O, uint64_t S)
@@ -71216,7 +71201,7 @@ index 644c5c82e..c11255e19 100644
    };
    SmallVector<Fragment, 4> Fragments;
  
-@@ -4485,7 +4738,8 @@ bool SROAPass::splitAlloca(AllocaInst &AI, AllocaSlices &AS) {
+@@ -4485,7 +4734,8 @@ bool SROAPass::splitAlloca(AllocaInst &AI, AllocaSlices &AS) {
              DL.getTypeSizeInBits(NewAI->getAllocatedType()).getFixedSize();
          // Don't include any padding.
          uint64_t Size = std::min(AllocaSize, P.size() * SizeOfByte);
@@ -71226,7 +71211,7 @@ index 644c5c82e..c11255e19 100644
        }
      }
      ++NumPartitions;
-@@ -4560,8 +4814,8 @@ bool SROAPass::splitAlloca(AllocaInst &AI, AllocaSlices &AS) {
+@@ -4560,8 +4810,8 @@ bool SROAPass::splitAlloca(AllocaInst &AI, AllocaSlices &AS) {
            OldDII->eraseFromParent();
        }
  
@@ -71237,7 +71222,7 @@ index 644c5c82e..c11255e19 100644
      }
    }
    return Changed;
-@@ -4582,6 +4836,22 @@ void SROAPass::clobberUse(Use &U) {
+@@ -4582,6 +4832,22 @@ void SROAPass::clobberUse(Use &U) {
      }
  }
  
@@ -71260,7 +71245,7 @@ index 644c5c82e..c11255e19 100644
  /// Analyze an alloca for SROA.
  ///
  /// This analyzes the alloca to ensure we can reason about it, builds
-@@ -4598,12 +4868,18 @@ bool SROAPass::runOnAlloca(AllocaInst &AI) {
+@@ -4598,12 +4864,18 @@ bool SROAPass::runOnAlloca(AllocaInst &AI) {
    }
    const DataLayout &DL = AI.getModule()->getDataLayout();
  
@@ -71279,7 +71264,7 @@ index 644c5c82e..c11255e19 100644
    bool Changed = false;
  
    // First, split any FCA loads and stores touching this alloca to promote
-@@ -4667,7 +4943,8 @@ bool SROAPass::deleteDeadInstructions(
+@@ -4667,7 +4939,8 @@ bool SROAPass::deleteDeadInstructions(
    bool Changed = false;
    while (!DeadInsts.empty()) {
      Instruction *I = dyn_cast_or_null<Instruction>(DeadInsts.pop_back_val());
@@ -71289,7 +71274,7 @@ index 644c5c82e..c11255e19 100644
      LLVM_DEBUG(dbgs() << "Deleting dead instruction: " << *I << "\n");
  
      // If the instruction is an alloca, find the possible dbg.declare connected
-@@ -4723,13 +5000,15 @@ PreservedAnalyses SROAPass::runImpl(Function &F, DominatorTree &RunDT,
+@@ -4723,13 +4996,15 @@ PreservedAnalyses SROAPass::runImpl(Function &F, DominatorTree &RunDT,
    BasicBlock &EntryBB = F.getEntryBlock();
    for (BasicBlock::iterator I = EntryBB.begin(), E = std::prev(EntryBB.end());
         I != E; ++I) {
