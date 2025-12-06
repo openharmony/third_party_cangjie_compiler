@@ -11134,10 +11134,10 @@ index 000000000..6595dcf91
 +#endif // LLDB_SOURCE_PLUGINS_EXPRESSIONPARSER_CANGJIE_CANGJIECOMPILERINSTANCE_H
 diff --git a/lldb/source/Plugins/ExpressionParser/Cangjie/CangjieDeclMap.cpp b/lldb/source/Plugins/ExpressionParser/Cangjie/CangjieDeclMap.cpp
 new file mode 100644
-index 000000000..fb79a00d5
+index 000000000..304e8580f
 --- /dev/null
 +++ b/lldb/source/Plugins/ExpressionParser/Cangjie/CangjieDeclMap.cpp
-@@ -0,0 +1,2149 @@
+@@ -0,0 +1,2162 @@
 +//===-- CangjieDeclMap.cpp ------------------------------------------------===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -12117,6 +12117,9 @@ index 000000000..fb79a00d5
 +}
 +
 +Ptr<AST::Decl> CangjieDeclMap::CreateTypeDecl(CompilerType type) {
++  if (!type.IsValid()) {
++    return nullptr;
++  }
 +  std::string typeName = type.GetTypeName().GetCString();
 +  if (CangjieASTBuiler::IsFunctionType(ConstString(typeName.c_str()))) {
 +    return nullptr;
@@ -12304,12 +12307,10 @@ index 000000000..fb79a00d5
 +      CJC_ASSERT(member_name == "constructor");
 +      return ctorFuncType;
 +    }
-+    CJC_ASSERT(member_name == "EnumClass$");
 +    if (ctorFuncType.IsPointerType()) {
 +      ctorFuncType = ctorFuncType.GetPointeeType();
 +    }
 +    enumType = ctorFuncType.GetFieldAtIndex(0, member_name, nullptr, nullptr, nullptr);
-+    CJC_ASSERT(member_name == "constructor");
 +  }
 +  return enumType;
 +}
@@ -12626,9 +12627,21 @@ index 000000000..fb79a00d5
 +  for (size_t i = 0; i < ntypes; ++i) {
 +    lldb::TypeSP type = type_list.GetTypeAtIndex(i);
 +    std::string tmpName = type->GetName().AsCString();
-+    auto tlpos = tmpName.find(combine_name);
 +    auto tpos = tmpName.find("<");
-+    if (tlpos != std::string::npos && (tpos == std::string::npos || tpos > tlpos)) {
++    auto dcpos = tmpName.find(PACKAGE_SUFFIX);
++    if (dcpos != std::string::npos && tpos > dcpos) {
++      // tmpName: "ohos.ark_interop::Slab<T>"  -->  "Slab<T>"
++      tmpName = tmpName.substr(dcpos + PACKAGE_SUFFIX.size());
++    }
++    auto tlpos = tmpName.find(combine_name);
++    if (tlpos == 0) {
++      CompilerType full_type = type->GetFullCompilerType();
++      return full_type;
++    }
++    //  tmpName: "E1$Time<Default::Bar>"  -->  "Time<Default::Bar>"
++    tmpName = DeletePrefixOfType(tmpName);
++    tlpos = tmpName.find(combine_name);
++    if (tlpos == 0) {
 +      CompilerType full_type = type->GetFullCompilerType();
 +      return full_type;
 +    }
@@ -13500,10 +13513,10 @@ index 000000000..58b19c2ec
 +#endif // LLDB_SOURCE_PLUGINS_EXPRESSIONPARSER_CANGJIE_DECL_MAP_H
 diff --git a/lldb/source/Plugins/ExpressionParser/Cangjie/CangjieExpressionParser.cpp b/lldb/source/Plugins/ExpressionParser/Cangjie/CangjieExpressionParser.cpp
 new file mode 100644
-index 000000000..1ef64be5e
+index 000000000..76a3af336
 --- /dev/null
 +++ b/lldb/source/Plugins/ExpressionParser/Cangjie/CangjieExpressionParser.cpp
-@@ -0,0 +1,290 @@
+@@ -0,0 +1,292 @@
 +//===-- CangjieExpressionParser.cpp ---------------------------------------===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -13639,8 +13652,10 @@ index 000000000..1ef64be5e
 +    std::stringstream sstream(cangjie_path);
 +    std::string tmp_path;
 +    while (std::getline(sstream, tmp_path, ':')) {
-+      LLDB_LOGF(log, "add [%s] to env CANGJIE_PATH\n", tmp_path.c_str());
-+      invocation->globalOptions.environment.cangjiePaths.emplace_back(tmp_path);
++      if (!tmp_path.empty()) {
++        LLDB_LOGF(log, "add [%s] to env CANGJIE_PATH\n", tmp_path.c_str());
++        invocation->globalOptions.environment.cangjiePaths.emplace_back(tmp_path);
++      }
 +    }
 +  }
 +  Cangjie::Triple::Info target_triple;
@@ -23136,7 +23151,7 @@ index 19e00e111..324854824 100644
      if (llvm::Expected<APFloat::opStatus> op =
              f.convertFromString(value_str, APFloat::rmNearestTiesToEven)) {
 diff --git a/lldb/source/Version/Version.cpp b/lldb/source/Version/Version.cpp
-index b391fe1ea..c57ea6867 100644
+index b391fe1ea..33929e278 100644
 --- a/lldb/source/Version/Version.cpp
 +++ b/lldb/source/Version/Version.cpp
 @@ -4,6 +4,12 @@
@@ -23192,7 +23207,7 @@ index b391fe1ea..c57ea6867 100644
        g_version_str += "\n  llvm revision ";
        g_version_str += llvm_rev;
      }
-+    g_version_str += "\n  cangjie 1.1.0-beta.7";
++    g_version_str += "\n  cangjie 1.1.0-beta.8";
    }
  
    return g_version_str.c_str();
@@ -48591,10 +48606,10 @@ index 8c77b6937..4e65ed2e2 100644
        F->addParamAttr(ArgNo, Attribute::NoAlias);
 diff --git a/llvm/lib/Transforms/IPO/CJPartialEscapeAnalysis.cpp b/llvm/lib/Transforms/IPO/CJPartialEscapeAnalysis.cpp
 new file mode 100644
-index 000000000..39bc4191a
+index 000000000..40bd54af8
 --- /dev/null
 +++ b/llvm/lib/Transforms/IPO/CJPartialEscapeAnalysis.cpp
-@@ -0,0 +1,3319 @@
+@@ -0,0 +1,3320 @@
 +//===- CJPartialEscapeAnalysis.cpp - escape analysis for Cangjie ----------===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -50672,6 +50687,7 @@ index 000000000..39bc4191a
 +    Base->spreadMemEscape(BB, ES, SuccBBInfo, Offsets, Direct);
 +    Offsets.pop_back();
 +    if (Offset < 0) {
++      IsVisiting = false;
 +      return;
 +    }
 +    if (Direct) {
