@@ -22668,7 +22668,7 @@ index 19e00e111..324854824 100644
      if (llvm::Expected<APFloat::opStatus> op =
              f.convertFromString(value_str, APFloat::rmNearestTiesToEven)) {
 diff --git a/lldb/source/Version/Version.cpp b/lldb/source/Version/Version.cpp
-index b391fe1ea..f63bbdef0 100644
+index b391fe1ea..00495799c 100644
 --- a/lldb/source/Version/Version.cpp
 +++ b/lldb/source/Version/Version.cpp
 @@ -4,6 +4,12 @@
@@ -22724,7 +22724,7 @@ index b391fe1ea..f63bbdef0 100644
        g_version_str += "\n  llvm revision ";
        g_version_str += llvm_rev;
      }
-+    g_version_str += "\n  cangjie 1.1.0-alpha.37";
++    g_version_str += "\n  cangjie 1.1.0-alpha.44";
    }
  
    return g_version_str.c_str();
@@ -23925,10 +23925,10 @@ index 5e900e916..17d033867 100644
  
 diff --git a/llvm/include/llvm/CodeGen/CJMetadata.h b/llvm/include/llvm/CodeGen/CJMetadata.h
 new file mode 100644
-index 000000000..8b477ab78
+index 000000000..522c36be4
 --- /dev/null
 +++ b/llvm/include/llvm/CodeGen/CJMetadata.h
-@@ -0,0 +1,153 @@
+@@ -0,0 +1,156 @@
 +//===- CodeGen/CJMetadata.h - Self-Defined CJMetadata Section ---*- C++ -*-===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -23974,6 +23974,7 @@ index 000000000..8b477ab78
 +  TypeInfoTableIdx,
 +  TypeTemplateIdx,
 +  TypeFieldsIdx,
++  TypeExtTableIdx,
 +  StaticGIIdx,
 +  GlobalInitFuncIdx,
 +  MTableIdx,
@@ -24018,6 +24019,7 @@ index 000000000..8b477ab78
 +
 +  void emitTypeInfo();
 +  void emitTypeTemplate();
++  void emitTypeExt();
 +  void emitMTable();
 +  void emitStaticGenericTI();
 +  void emitInnerTypeExtensions();
@@ -24064,6 +24066,7 @@ index 000000000..8b477ab78
 +  SmallVector<const GlobalVariable *, 100> ExternalTITable;
 +  SmallVector<const GlobalVariable *, 100> TIFieldsTable;
 +  SmallVector<const GlobalVariable *, 100> MTableTable;
++  SmallVector<const GlobalVariable *, 100> TypeExtTable;
 +  SmallVector<const GlobalVariable *, 100> GCTibTable;
 +  SmallVector<const GlobalVariable *, 100> StaticGenericTI;
 +  SmallVector<const GlobalVariable *, 50> ReflectGeneticTI;
@@ -25671,10 +25674,10 @@ index 7945c64c8..f6b3a339e 100644
    void allocHungoffUselist();
    template<int Idx> void setHungoffOperand(Constant *C);
 diff --git a/llvm/include/llvm/IR/GlobalVariable.h b/llvm/include/llvm/IR/GlobalVariable.h
-index e772964fc..f89a08d11 100644
+index e772964fc..8fb01c2b0 100644
 --- a/llvm/include/llvm/IR/GlobalVariable.h
 +++ b/llvm/include/llvm/IR/GlobalVariable.h
-@@ -159,6 +159,51 @@ public:
+@@ -159,6 +159,53 @@ public:
      isExternallyInitializedConstant = Val;
    }
  
@@ -25688,7 +25691,8 @@ index e772964fc..f89a08d11 100644
 +           hasAttribute("CJTypeName") || hasAttribute("CJTIOffsets") ||
 +           hasAttribute("CJTITypeArgs") || hasAttribute("CJTIFields") ||
 +           hasAttribute("CJTTFieldsFns") || hasAttribute("CJTIUpperBounds") ||
-+           hasAttribute("CJFuncTable") || getName().equals("cj.sdk.version");
++           hasAttribute("CJFuncTable") || getName().equals("cj.sdk.version") ||
++           hasAttribute("CFileTIExt");
 +  }
 +
 +  bool isCJSDKVersion() const { return getName().equals("cj.sdk.version"); }
@@ -25703,6 +25707,7 @@ index e772964fc..f89a08d11 100644
 +  bool isCJGlobalValue() const { return hasAttribute("CJGlobalValue"); }
 +  bool isCJGCTib() const { return hasAttribute("CFileGCTib"); }
 +  bool isCJMTable() const { return hasAttribute("CFileMTable"); }
++  bool isCJTypeExt() const { return hasAttribute("CFileTIExt"); }
 +  bool isCJInnerTypeExtensions() const {
 +    return hasAttribute("InnerTypeExtensions");
 +  }
@@ -25996,7 +26001,7 @@ index 4ff48c366..fd01aa3bd 100644
  class AssumeInst : public IntrinsicInst {
  public:
 diff --git a/llvm/include/llvm/IR/Intrinsics.td b/llvm/include/llvm/IR/Intrinsics.td
-index d46fa4fbf..e29a51efb 100644
+index d46fa4fbf..053cc377e 100644
 --- a/llvm/include/llvm/IR/Intrinsics.td
 +++ b/llvm/include/llvm/IR/Intrinsics.td
 @@ -180,6 +180,9 @@ class LLVMQualPointerType<LLVMType elty, int addrspace>
@@ -26068,7 +26073,7 @@ index d46fa4fbf..e29a51efb 100644
  
  def llvm_x86mmx_ty     : LLVMType<x86mmx>;
  def llvm_ptrx86mmx_ty  : LLVMPointerType<llvm_x86mmx_ty>;         // <1 x i64>*
-@@ -417,6 +432,198 @@ def int_gcwrite : Intrinsic<[],
+@@ -417,6 +432,201 @@ def int_gcwrite : Intrinsic<[],
                              [IntrArgMemOnly, NoCapture<ArgIndex<1>>,
                               NoCapture<ArgIndex<2>>]>;
  
@@ -26248,8 +26253,11 @@ index d46fa4fbf..e29a51efb 100644
 +def int_cj_get_mtable_func          : Intrinsic<[llvm_ptr_ty],
 +                                                [llvm_ptr_ty, llvm_ptr_ty, llvm_i64_ty],
 +                                                [IntrNoMem, IntrWillReturn, IntrSpeculatable]>;
++def int_cj_get_method_outertype     : Intrinsic<[llvm_ptr_ty],
++                                                [llvm_ptr_ty, llvm_ptr_ty, llvm_i64_ty],
++                                                [IntrNoMem, IntrWillReturn, IntrSpeculatable]>;
 +def int_cj_get_vtable_func          : Intrinsic<[llvm_ptr_ty],
-+                                                [llvm_ptr_ty, llvm_i64_ty, llvm_i64_ty]>;
++                                                [llvm_ptr_ty, llvm_i64_ty, llvm_i64_ty, llvm_ptr_ty]>;
 +def int_cj_assign_generic           : Intrinsic<[],
 +                                                [llvm_gcptr_ty, llvm_gcptr_ty, llvm_ptr_ty],
 +                                                [IntrArgMemOnly, IntrWillReturn,
@@ -26267,7 +26275,7 @@ index d46fa4fbf..e29a51efb 100644
  //===------------------- ObjC ARC runtime Intrinsics --------------------===//
  //
  // Note these are to support the Objective-C ARC optimizer which wants to
-@@ -1257,6 +1464,25 @@ def int_experimental_gc_get_pointer_offset : Intrinsic<[llvm_i64_ty],
+@@ -1257,6 +1467,25 @@ def int_experimental_gc_get_pointer_offset : Intrinsic<[llvm_i64_ty],
                   [llvm_anyptr_ty], [IntrNoMem, IntrWillReturn,
                   ReadNone<ArgIndex<0>>, NoCapture<ArgIndex<0>>]>;
  
@@ -26514,26 +26522,28 @@ index 246d236ad..0f4f31af1 100644
  
  #endif // LLVM_IR_SAFEPOINTIRVERIFIER_H
 diff --git a/llvm/include/llvm/IR/Statepoint.h b/llvm/include/llvm/IR/Statepoint.h
-index 559840a33..70c98f02b 100644
+index 559840a33..a474d7681 100644
 --- a/llvm/include/llvm/IR/Statepoint.h
 +++ b/llvm/include/llvm/IR/Statepoint.h
-@@ -34,6 +34,15 @@
+@@ -34,6 +34,17 @@
  
  namespace llvm {
  
++namespace Cangjie {
 +// Cangjie Statepoint ID
 +enum CJStatepointID : uint64_t {
-+   Default = 0,
-+   // 1 and 2 are reserved for others
-+   Safepoint = 3,
-+   StackCheck = 4,
-+   NewArrayFast = 5,
++  Default = 0,
++  // 1 and 2 are reserved for others
++  Safepoint = 3,
++  StackCheck = 4,
++  NewArrayFast = 5,
 +};
++} // namespace Cangjie
 +
  /// The statepoint intrinsic accepts a set of flags as its third argument.
  /// Valid values come out of this set.
  enum class StatepointFlags {
-@@ -66,7 +75,8 @@ public:
+@@ -66,7 +77,8 @@ public:
  
    static bool classof(const CallBase *I) {
      if (const Function *CF = I->getCalledFunction())
@@ -26543,7 +26553,7 @@ index 559840a33..70c98f02b 100644
      return false;
    }
  
-@@ -120,14 +130,23 @@ public:
+@@ -120,14 +132,23 @@ public:
    /// Return the type of the value returned by the call underlying the
    /// statepoint.
    Type *getActualReturnType() const {
@@ -26571,7 +26581,7 @@ index 559840a33..70c98f02b 100644
    const_op_iterator actual_arg_begin() const {
      assert(CallArgsBeginPos <= (int)arg_size());
      return arg_begin() + CallArgsBeginPos;
-@@ -175,7 +194,7 @@ public:
+@@ -175,7 +196,7 @@ public:
      return make_range(deopt_begin(), deopt_end());
    }
  
@@ -26580,7 +26590,7 @@ index 559840a33..70c98f02b 100644
    /// values for the statepoint.
    const_op_iterator gc_args_begin() const {
      if (auto Opt = getOperandBundle(LLVMContext::OB_gc_live))
-@@ -195,6 +214,25 @@ public:
+@@ -195,6 +216,25 @@ public:
      return make_range(gc_args_begin(), gc_args_end());
    }
  
@@ -26606,7 +26616,7 @@ index 559840a33..70c98f02b 100644
  
    /// Get list of all gc reloactes linked to this statepoint
    /// May contain several relocations for the same base/derived pair.
-@@ -248,6 +286,8 @@ StatepointDirectives parseStatepointDirectivesFromAttrs(AttributeList AS);
+@@ -248,6 +288,8 @@ StatepointDirectives parseStatepointDirectivesFromAttrs(AttributeList AS);
  /// directive.
  bool isStatepointDirectiveAttr(Attribute Attr);
  
@@ -26726,10 +26736,10 @@ index ea52226dc..abedee3be 100644
    /// by LTO but might not be visible from bitcode symbol table.
    static ArrayRef<const char*> getRuntimeLibcallSymbols();
 diff --git a/llvm/include/llvm/MC/MCObjectFileInfo.h b/llvm/include/llvm/MC/MCObjectFileInfo.h
-index ebc9b95d6..61d9801a3 100644
+index ebc9b95d6..cfee3ecd3 100644
 --- a/llvm/include/llvm/MC/MCObjectFileInfo.h
 +++ b/llvm/include/llvm/MC/MCObjectFileInfo.h
-@@ -228,6 +228,38 @@ protected:
+@@ -228,6 +228,39 @@ protected:
    // GOFF specific sections.
    MCSection *PPA1Section = nullptr;
  
@@ -26741,6 +26751,7 @@ index ebc9b95d6..61d9801a3 100644
 +  /// Sections about cangjie typeinfo.
 +  MCSection *CJTypeInfoSection = nullptr;   // TypeInfo
 +  MCSection *CJTypeFieldsSection = nullptr; // Fields of TI or TT
++  MCSection *CJTypeExtSection = nullptr; // Ext part of TI or TT
 +
 +  /// Sections about vtable and itable
 +  MCSection *CJMtableSection = nullptr;              // Tile all extensiondefs
@@ -26768,7 +26779,7 @@ index ebc9b95d6..61d9801a3 100644
    // XCOFF specific sections
    MCSection *TOCBaseSection = nullptr;
    MCSection *ReadOnly8Section = nullptr;
-@@ -434,6 +466,48 @@ public:
+@@ -434,6 +467,49 @@ public:
  
    MCSection *getEHFrameSection() const { return EHFrameSection; }
  
@@ -26777,6 +26788,7 @@ index ebc9b95d6..61d9801a3 100644
 +  MCSection *getCJTypeTemplateSection() const { return CJTypeTemplateSection; }
 +  MCSection *getCJStaticGenericTISection() const { return CJStaticGenericTISection; }
 +  MCSection *getTypeInfoSection() const { return CJTypeInfoSection; }
++  MCSection *getTypeExtSection() const { return CJTypeExtSection; }
 +  MCSection *getCJTypeFieldsSection() const { return CJTypeFieldsSection; }
 +
 +  // VTable/ITable
@@ -26818,10 +26830,10 @@ index ebc9b95d6..61d9801a3 100644
  
    // Swift5 Reflection Data Sections
 diff --git a/llvm/include/llvm/MC/SectionKind.h b/llvm/include/llvm/MC/SectionKind.h
-index 61e400fe9..e3dbb6f1d 100644
+index 61e400fe9..b67537510 100644
 --- a/llvm/include/llvm/MC/SectionKind.h
 +++ b/llvm/include/llvm/MC/SectionKind.h
-@@ -116,9 +116,42 @@ class SectionKind {
+@@ -116,9 +116,44 @@ class SectionKind {
             /// can write to them.  If it chooses to, the dynamic linker can
             /// mark the pages these globals end up on as read-only after it is
             /// done with its relocation phase.
@@ -26833,6 +26845,7 @@ index 61e400fe9..e3dbb6f1d 100644
 +               CJStaticGenericTI,
 +               CJTypeInfo,
 +               CJTypeFields,
++               CJTypeExt,
 +               CJMTable,
 +               CJInnerTypeExtensions,
 +               CJOuterTypeExtensions,
@@ -26849,6 +26862,7 @@ index 61e400fe9..e3dbb6f1d 100644
 +  bool isCJTypeFields() const { return K == CJTypeFields; }
 +  bool isCJGCTib() const { return K == CJGCTib; }
 +  bool isCJMTable() const { return K == CJMTable; }
++  bool isCJTypeExt() const { return K == CJTypeExt; }
 +  bool isCJReflectPkgInfo() const { return K == CJReflectPkgInfo; }
 +  bool isCJReflectGV() const { return K == CJReflectGV; }
 +  bool isCJStaticGenericTI() const { return K == CJStaticGenericTI; }
@@ -26860,12 +26874,12 @@ index 61e400fe9..e3dbb6f1d 100644
 +           isCJTypeFields() || isCJGCTib() || isCJMTable() ||
 +           isCJReflectPkgInfo() || isCJReflectGV() || isCJStaticGenericTI() ||
 +           isCJInnerTypeExtensions() || isCJOuterTypeExtensions() ||
-+           isCJReflectGenericTI();
++           isCJReflectGenericTI() || isCJTypeExt();
 +  }
  
    bool isMetadata() const { return K == Metadata; }
  
-@@ -163,7 +196,8 @@ public:
+@@ -163,7 +198,8 @@ public:
    bool isThreadBSSLocal() const { return K == ThreadBSSLocal; }
  
    bool isGlobalWriteableData() const {
@@ -26875,7 +26889,7 @@ index 61e400fe9..e3dbb6f1d 100644
    }
  
    bool isBSS() const { return K == BSS || K == BSSLocal || K == BSSExtern; }
-@@ -173,6 +207,7 @@ public:
+@@ -173,6 +209,7 @@ public:
    bool isCommon() const { return K == Common; }
  
    bool isData() const { return K == Data; }
@@ -26883,7 +26897,7 @@ index 61e400fe9..e3dbb6f1d 100644
  
    bool isReadOnlyWithRel() const {
      return K == ReadOnlyWithRel;
-@@ -211,6 +246,22 @@ public:
+@@ -211,6 +248,23 @@ public:
    static SectionKind getBSSExtern() { return get(BSSExtern); }
    static SectionKind getCommon() { return get(Common); }
    static SectionKind getData() { return get(Data); }
@@ -26893,6 +26907,7 @@ index 61e400fe9..e3dbb6f1d 100644
 +  static SectionKind getCJTypeFields() { return get(CJTypeFields); }
 +  static SectionKind getCJGCTib() { return get(CJGCTib); }
 +  static SectionKind getCJMTable() { return get(CJMTable); }
++  static SectionKind getCJTypeExt() { return get(CJTypeExt); }
 +  static SectionKind getCJReflectGV() { return get(CJReflectGV); }
 +  static SectionKind getCJReflectPkgInfo() { return get(CJReflectPkgInfo); }
 +  static SectionKind getCJStaticGenericTI() { return get(CJStaticGenericTI); }
@@ -27561,10 +27576,10 @@ index 000000000..18bd5afdd
 +#endif // LLVM_TRANSFORMS_SCALAR_CJ_DEVIRTUAL_OPT_H
 diff --git a/llvm/include/llvm/Transforms/Scalar/CJFillMetadata.h b/llvm/include/llvm/Transforms/Scalar/CJFillMetadata.h
 new file mode 100644
-index 000000000..4a8f3a25f
+index 000000000..8431ff969
 --- /dev/null
 +++ b/llvm/include/llvm/Transforms/Scalar/CJFillMetadata.h
-@@ -0,0 +1,272 @@
+@@ -0,0 +1,274 @@
 +//===- CJFillMetadata.h - ---------------------------------------*- C++ -*-===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -27674,14 +27689,14 @@ index 000000000..4a8f3a25f
 +  TF_MONITOR_CLASS = 0x1 << 4,
 +  TF_WAIT_QUEUE_CLASS = 0x1 << 5,
 +  TF_REFLECTION = 0x1 << 6,
-+  // used to mark weakref in the backend,
-+  // does not set the flag value in typeinfo.
-+  TF_WEAK_REF_CLASS = 0x1 << 7,
++  TF_HAS_EXT_PART = 0x1 << 7,
 +};
 +
 +enum ExtensionDefFieldType : uint8_t {
 +  ET_TYPE_PARAM_COUNT = 0,
 +  ET_IS_INTERFACE_TYPEINFO,
++  ET_FLAG,
++  ET_FUNC_TABLE_SIZE,
 +  ET_TARGET_TYPE,
 +  ET_INTERFACE_FN,
 +  ET_WHERE_COND_FN,
@@ -27716,6 +27731,8 @@ index 000000000..4a8f3a25f
 +struct ExtensionDefData {
 +  unsigned TypeParamCount;
 +  uint8_t IsInterfaceTypeInfo;
++  uint8_t Flag;
++  uint16_t FuncTableSize;
 +  GlobalVariable *TargetType = 0;
 +  union {
 +    Function *InterfaceFn = nullptr;
@@ -31841,7 +31858,7 @@ index 5ecdf5af9..99f246d58 100644
 +LLVMBuildGenerateCFragment(OUTPUT ${LLVMCONFIGLIBRARYDEPENDENCIESINC})
 \ No newline at end of file
 diff --git a/llvm/lib/CodeGen/AsmPrinter/AsmPrinter.cpp b/llvm/lib/CodeGen/AsmPrinter/AsmPrinter.cpp
-index 32a10ad41..75d3d2e57 100644
+index 32a10ad41..55c4919ff 100644
 --- a/llvm/lib/CodeGen/AsmPrinter/AsmPrinter.cpp
 +++ b/llvm/lib/CodeGen/AsmPrinter/AsmPrinter.cpp
 @@ -37,6 +37,7 @@
@@ -32191,7 +32208,7 @@ index 32a10ad41..75d3d2e57 100644
  
      if (Size > 8) {
        // If the constant expression's size is greater than 64-bits, then we have
-@@ -3338,15 +3500,51 @@ static void emitGlobalConstantImpl(const DataLayout &DL, const Constant *CV,
+@@ -3338,15 +3500,52 @@ static void emitGlobalConstantImpl(const DataLayout &DL, const Constant *CV,
    if (AP.getObjFileLowering().supportIndirectSymViaGOTPCRel())
      handleIndirectSymViaGOTPCRel(AP, &ME, BaseCV, Offset);
  
@@ -32216,7 +32233,8 @@ index 32a10ad41..75d3d2e57 100644
 +
 +      StatepointOpers SO(&MI);
 +      uint64_t ID = SO.getID();
-+      if (ID == CJStatepointID::Safepoint || ID == CJStatepointID::StackCheck)
++      if (ID == Cangjie::CJStatepointID::Safepoint ||
++          ID == Cangjie::CJStatepointID::StackCheck)
 +        continue;
 +
 +      const MachineOperand &CallTarget = SO.getCallTarget();
@@ -32245,7 +32263,7 @@ index 32a10ad41..75d3d2e57 100644
    else if (MAI->hasSubsectionsViaSymbols()) {
      // If the global has zero size, emit a single byte so that two labels don't
      // look like they are at the same location.
-@@ -3728,6 +3926,11 @@ void AsmPrinter::emitStackMaps(StackMaps &SM) {
+@@ -3728,6 +3927,11 @@ void AsmPrinter::emitStackMaps(StackMaps &SM) {
      SM.serializeToStackMapSection();
  }
  
@@ -32257,7 +32275,7 @@ index 32a10ad41..75d3d2e57 100644
  /// Pin vtable to this file.
  AsmPrinterHandler::~AsmPrinterHandler() = default;
  
-@@ -3901,3 +4104,112 @@ unsigned int AsmPrinter::getUnitLengthFieldByteSize() const {
+@@ -3901,3 +4105,112 @@ unsigned int AsmPrinter::getUnitLengthFieldByteSize() const {
    return dwarf::getUnitLengthFieldByteSize(
        OutStreamer->getContext().getDwarfFormat());
  }
@@ -32391,6 +32409,68 @@ index bfa53f5b9..593514f84 100644
  /// GetSizeOfEncodedValue - Return the size of the encoding in bytes.
  unsigned AsmPrinter::GetSizeOfEncodedValue(unsigned Encoding) const {
    if (Encoding == dwarf::DW_EH_PE_omit)
+diff --git a/llvm/lib/CodeGen/AsmPrinter/DwarfDebug.cpp b/llvm/lib/CodeGen/AsmPrinter/DwarfDebug.cpp
+index 54af14429..1da83afd5 100644
+--- a/llvm/lib/CodeGen/AsmPrinter/DwarfDebug.cpp
++++ b/llvm/lib/CodeGen/AsmPrinter/DwarfDebug.cpp
+@@ -27,6 +27,7 @@
+ #include "llvm/CodeGen/MachineFunction.h"
+ #include "llvm/CodeGen/MachineModuleInfo.h"
+ #include "llvm/CodeGen/MachineOperand.h"
++#include "llvm/CodeGen/StackMaps.h"
+ #include "llvm/CodeGen/TargetInstrInfo.h"
+ #include "llvm/CodeGen/TargetLowering.h"
+ #include "llvm/CodeGen/TargetRegisterInfo.h"
+@@ -37,6 +38,7 @@
+ #include "llvm/IR/Function.h"
+ #include "llvm/IR/GlobalVariable.h"
+ #include "llvm/IR/Module.h"
++#include "llvm/IR/Statepoint.h"
+ #include "llvm/MC/MCAsmInfo.h"
+ #include "llvm/MC/MCContext.h"
+ #include "llvm/MC/MCSection.h"
+@@ -1975,6 +1977,13 @@ void DwarfDebug::beginInstruction(const MachineInstr *MI) {
+     return true;
+   };
+ 
++  auto IsCangjieSafepoint = [](const MachineInstr *MI) {
++    return MI->getOpcode() != TargetOpcode::STATEPOINT
++               ? false
++               : StatepointOpers(MI).getID() ==
++                     Cangjie::CJStatepointID::Safepoint;
++  };
++
+   // When describing calls, we need a label for the call instruction.
+   if (!NoDebug && SP->areAllCallsDescribed() &&
+       MI->isCandidateForCallSiteEntry(MachineInstr::AnyInBundle) &&
+@@ -1995,7 +2004,7 @@ void DwarfDebug::beginInstruction(const MachineInstr *MI) {
+   if (!CurMI)
+     return;
+ 
+-  if (NoDebug)
++  if (NoDebug || IsCangjieSafepoint(MI)) // No debug info for safepoints.
+     return;
+ 
+   // Check if source location changes, but ignore DBG_VALUE and CFI locations.
+@@ -2081,11 +2090,17 @@ void DwarfDebug::beginInstruction(const MachineInstr *MI) {
+ static DebugLoc findPrologueEndLoc(const MachineFunction *MF) {
+   // First known non-DBG_VALUE and non-frame setup location marks
+   // the beginning of the function body.
++  auto IsCangjieSafepoint = [](const MachineInstr *MI) {
++    return MI->getOpcode() != TargetOpcode::STATEPOINT
++               ? false
++               : StatepointOpers(MI).getID() ==
++                     Cangjie::CJStatepointID::Safepoint;
++  };
+   DebugLoc LineZeroLoc;
+   for (const auto &MBB : *MF) {
+     for (const auto &MI : MBB) {
+       if (!MI.isMetaInstruction() && !MI.getFlag(MachineInstr::FrameSetup) &&
+-          MI.getDebugLoc()) {
++          MI.getDebugLoc() && !IsCangjieSafepoint(&MI)) {
+         // Scan forward to try to find a non-zero line number. The prologue_end
+         // marks the first breakpoint in the function after the frame setup, and
+         // a compiler-generated line 0 location is not a meaningful breakpoint.
 diff --git a/llvm/lib/CodeGen/AsmPrinter/EHStreamer.cpp b/llvm/lib/CodeGen/AsmPrinter/EHStreamer.cpp
 index 31644959b..773166df5 100644
 --- a/llvm/lib/CodeGen/AsmPrinter/EHStreamer.cpp
@@ -33698,10 +33778,10 @@ index 000000000..b3ea0df0a
 +}
 diff --git a/llvm/lib/CodeGen/CJMetadata.cpp b/llvm/lib/CodeGen/CJMetadata.cpp
 new file mode 100644
-index 000000000..88fe140be
+index 000000000..1a1aeace7
 --- /dev/null
 +++ b/llvm/lib/CodeGen/CJMetadata.cpp
-@@ -0,0 +1,874 @@
+@@ -0,0 +1,888 @@
 +//===- CJMetadata.cpp - Self-Defined CJMetadata Section ----------*- C++-*-===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -33796,6 +33876,7 @@ index 000000000..88fe140be
 +  TD[TypeInfoTableIdx].TableSection = MOFI->getTypeInfoSection();
 +  TD[TypeTemplateIdx].TableSection = MOFI->getCJTypeTemplateSection();
 +  TD[TypeFieldsIdx].TableSection = MOFI->getCJTypeFieldsSection();
++  TD[TypeExtTableIdx].TableSection = MOFI->getTypeExtSection();
 +  TD[MTableIdx].TableSection = MOFI->getCJMtableSection();
 +  TD[StaticGIIdx].TableSection = MOFI->getCJStaticGenericTISection();
 +  TD[GCFlagsIdx].TableSection = MOFI->getCJGCFlagsSection();
@@ -33861,6 +33942,11 @@ index 000000000..88fe140be
 +
 +    if (GV->isCJMTable()) {
 +      MTableTable.push_back(GV);
++      return;
++    }
++
++    if (GV->isCJTypeExt()) {
++      TypeExtTable.push_back(GV);
 +      return;
 +    }
 +
@@ -34317,6 +34403,13 @@ index 000000000..88fe140be
 +    AP.emitGlobalVariable(TT);
 +}
 +
++void CJMetadataInfo::emitTypeExt() {
++  OS.switchSection(TD[TypeExtTableIdx].TableSection);
++  for (const auto *typeExt : TypeExtTable) {
++    AP.emitGlobalVariable(typeExt);
++  }
++}
++
 +void CJMetadataInfo::emitMTable() {
 +  if (MTableTable.empty())
 +    return;
@@ -34573,6 +34666,7 @@ index 000000000..88fe140be
 +  emitGCFlags();
 +  emitReflectInfo();
 +  emitReflectGenericTI();
++  emitTypeExt();
 +  OS.addBlankLine();
 +}
 +} // namespace llvm
@@ -36762,7 +36856,7 @@ index d46a0a23c..2d3908b11 100644
              !isa<GCRelocateInst>(Inst) && !isa<GCResultInst>(Inst)) {
            OptimizationRemarkMissed R("sdagisel", "FastISelFailure",
 diff --git a/llvm/lib/CodeGen/SelectionDAG/StatepointLowering.cpp b/llvm/lib/CodeGen/SelectionDAG/StatepointLowering.cpp
-index c5c093ae2..1c9a6aa23 100644
+index c5c093ae2..a8c19d031 100644
 --- a/llvm/lib/CodeGen/SelectionDAG/StatepointLowering.cpp
 +++ b/llvm/lib/CodeGen/SelectionDAG/StatepointLowering.cpp
 @@ -55,7 +55,12 @@
@@ -36830,7 +36924,19 @@ index c5c093ae2..1c9a6aa23 100644
  
    assert(CallEnd->getOpcode() == ISD::CALLSEQ_END && "expected!");
    return std::make_pair(ReturnValue, CallEnd->getOperand(0).getNode());
-@@ -418,6 +435,28 @@ spillIncomingStatepointValue(SDValue Incoming, SDValue Chain,
+@@ -406,8 +423,9 @@ spillIncomingStatepointValue(SDValue Incoming, SDValue Chain,
+     auto *StoreMMO = MF.getMachineMemOperand(
+         PtrInfo, MachineMemOperand::MOStore, MFI.getObjectSize(Index),
+         MFI.getObjectAlign(Index));
+-    Chain = Builder.DAG.getStore(Chain, Builder.getCurSDLoc(), Incoming, Loc,
+-                                 StoreMMO);
++    Chain = Builder.DAG.getStore(Chain,
++                                 CJPipeline ? SDLoc() : Builder.getCurSDLoc(),
++                                 Incoming, Loc, StoreMMO);
+ 
+     MMO = getMachineMemOperand(MF, *cast<FrameIndexSDNode>(Loc));
+ 
+@@ -418,6 +436,28 @@ spillIncomingStatepointValue(SDValue Incoming, SDValue Chain,
    return std::make_tuple(Loc, Chain, MMO);
  }
  
@@ -36859,7 +36965,7 @@ index c5c093ae2..1c9a6aa23 100644
  /// Lower a single value incoming to a statepoint node.  This value can be
  /// either a deopt value or a gc value, the handling is the same.  We special
  /// case constants and allocas, then fall back to spilling if required.
-@@ -426,7 +465,6 @@ lowerIncomingStatepointValue(SDValue Incoming, bool RequireSpillSlot,
+@@ -426,7 +466,6 @@ lowerIncomingStatepointValue(SDValue Incoming, bool RequireSpillSlot,
                               SmallVectorImpl<SDValue> &Ops,
                               SmallVectorImpl<MachineMemOperand *> &MemRefs,
                               SelectionDAGBuilder &Builder) {
@@ -36867,7 +36973,7 @@ index c5c093ae2..1c9a6aa23 100644
    if (willLowerDirectly(Incoming)) {
      if (FrameIndexSDNode *FI = dyn_cast<FrameIndexSDNode>(Incoming)) {
        // This handles allocas as arguments to the statepoint (this is only
-@@ -470,8 +508,6 @@ lowerIncomingStatepointValue(SDValue Incoming, bool RequireSpillSlot,
+@@ -470,8 +509,6 @@ lowerIncomingStatepointValue(SDValue Incoming, bool RequireSpillSlot,
      llvm_unreachable("unhandled direct lowering case");
    }
  
@@ -36876,7 +36982,7 @@ index c5c093ae2..1c9a6aa23 100644
    if (!RequireSpillSlot) {
      // If this value is live in (not live-on-return, or live-through), we can
      // treat it the same way patchpoint treats it's "live in" values.  We'll
-@@ -495,9 +531,39 @@ lowerIncomingStatepointValue(SDValue Incoming, bool RequireSpillSlot,
+@@ -495,9 +532,39 @@ lowerIncomingStatepointValue(SDValue Incoming, bool RequireSpillSlot,
      Chain = std::get<1>(Res);;
      Builder.DAG.setRoot(Chain);
    }
@@ -36916,7 +37022,7 @@ index c5c093ae2..1c9a6aa23 100644
  /// Return true if value V represents the GC value. The behavior is conservative
  /// in case it is not sure that value is not GC the function returns true.
  static bool isGCValue(const Value *V, SelectionDAGBuilder &Builder) {
-@@ -527,6 +593,7 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
+@@ -527,6 +594,7 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
    // Lower the deopt and gc arguments for this statepoint.  Layout will be:
    // deopt argument length, deopt arguments.., gc arguments...
  #ifndef NDEBUG
@@ -36924,7 +37030,7 @@ index c5c093ae2..1c9a6aa23 100644
    if (auto *GFI = Builder.GFI) {
      // Check that each of the gc pointer and bases we've gotten out of the
      // safepoint is something the strategy thinks might be a pointer (or vector
-@@ -555,6 +622,17 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
+@@ -555,6 +623,17 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
    }
  #endif
  
@@ -36942,7 +37048,7 @@ index c5c093ae2..1c9a6aa23 100644
    // Figure out what lowering strategy we're going to use for each part
    // Note: Is is conservatively correct to lower both "live-in" and "live-out"
    // as "live-through". A "live-through" variable is one which is "live-in",
-@@ -591,6 +669,8 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
+@@ -591,6 +670,8 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
    SmallSetVector<SDValue, 16> LoweredGCPtrs;
    // Map lowered GC Pointer value to the index in above vector
    DenseMap<SDValue, unsigned> GCPtrIndexMap;
@@ -36951,7 +37057,7 @@ index c5c093ae2..1c9a6aa23 100644
  
    unsigned CurNumVRegs = 0;
  
-@@ -692,8 +772,32 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
+@@ -692,8 +773,32 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
      lowerIncomingStatepointValue(SDV, !LowerAsVReg.count(SDV), Ops, MemRefs,
                                   Builder);
  
@@ -36986,7 +37092,7 @@ index c5c093ae2..1c9a6aa23 100644
  
    // If there are any explicit spill slots passed to the statepoint, record
    // them, but otherwise do not do anything special.  These are user provided
-@@ -701,11 +805,10 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
+@@ -701,11 +806,10 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
    // it is the contents of the slot which may get updated, not the pointer to
    // the alloca
    SmallVector<SDValue, 4> Allocas;
@@ -37001,7 +37107,7 @@ index c5c093ae2..1c9a6aa23 100644
               "Incoming value is a frame index!");
        Allocas.push_back(Builder.DAG.getTargetFrameIndex(
            FI->getIndex(), Builder.getFrameIndexTy()));
-@@ -714,7 +817,22 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
+@@ -714,7 +818,22 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
        auto *MMO = getMachineMemOperand(MF, *FI);
        MemRefs.push_back(MMO);
      }
@@ -37024,7 +37130,7 @@ index c5c093ae2..1c9a6aa23 100644
    pushStackMapConstant(Ops, Builder, Allocas.size());
    Ops.append(Allocas.begin(), Allocas.end());
  
-@@ -731,6 +849,47 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
+@@ -731,6 +850,47 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
      Ops.push_back(
          Builder.DAG.getTargetConstant(GCPtrIndexMap[Derived], L, MVT::i64));
    }
@@ -37072,7 +37178,7 @@ index c5c093ae2..1c9a6aa23 100644
  }
  
  SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
-@@ -744,6 +903,11 @@ SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
+@@ -744,6 +904,11 @@ SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
    StatepointLowering.startNewStatepoint(*this);
    assert(SI.Bases.size() == SI.Ptrs.size());
  
@@ -37084,7 +37190,7 @@ index c5c093ae2..1c9a6aa23 100644
    LLVM_DEBUG(dbgs() << "Lowering statepoint " << *SI.StatepointInstr << "\n");
  #ifndef NDEBUG
    for (const auto *Reloc : SI.GCRelocates)
-@@ -839,7 +1003,7 @@ SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
+@@ -839,7 +1004,7 @@ SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
    Ops.push_back(DAG.getTargetConstant(NumCallRegArgs, getCurSDLoc(), MVT::i32));
  
    // Add call target
@@ -37093,7 +37199,7 @@ index c5c093ae2..1c9a6aa23 100644
    Ops.push_back(CallTarget);
  
    // Add call arguments
-@@ -902,39 +1066,14 @@ SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
+@@ -902,39 +1067,14 @@ SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
        continue;
  
      SDValue Relocated = SDValue(StatepointMCNode, LowerAsVReg[SD]);
@@ -37135,7 +37241,7 @@ index c5c093ae2..1c9a6aa23 100644
      SDValue SDV = getValue(V);
      SDValue Loc = StatepointLowering.getLocation(SDV);
  
-@@ -961,9 +1100,11 @@ SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
+@@ -961,9 +1101,11 @@ SDValue SelectionDAGBuilder::LowerAsSTATEPOINT(
          ExportFromCurrentBlock(V);
      }
      RelocationMap[Relocate] = Record;
@@ -37149,7 +37255,7 @@ index c5c093ae2..1c9a6aa23 100644
  
    SDNode *SinkNode = StatepointMCNode;
  
-@@ -1050,7 +1191,7 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
+@@ -1050,7 +1192,7 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
  
    SDValue ActualCallee;
    SDValue Callee = getValue(I.getActualCalledOperand());
@@ -37158,7 +37264,7 @@ index c5c093ae2..1c9a6aa23 100644
    if (I.getNumPatchBytes() > 0) {
      // If we've been asked to emit a nop sequence instead of a call instruction
      // for this statepoint then don't lower the call target, but use a constant
-@@ -1060,13 +1201,19 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
+@@ -1060,13 +1202,19 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
      ActualCallee = DAG.getUNDEF(Callee.getValueType());
    } else {
      ActualCallee = Callee;
@@ -37179,7 +37285,7 @@ index c5c093ae2..1c9a6aa23 100644
    // There may be duplication in the gc.relocate list; such as two copies of
    // each relocation on normal and exceptional path for an invoke.  We only
    // need to spill once and record one copy in the stackmap, but we need to
-@@ -1085,6 +1232,14 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
+@@ -1085,6 +1233,14 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
      SI.GCRelocates.push_back(Relocate);
  
      SDValue DerivedSD = getValue(Relocate->getDerivedPtr());
@@ -37194,7 +37300,7 @@ index c5c093ae2..1c9a6aa23 100644
      if (Seen.insert(DerivedSD).second) {
        SI.Bases.push_back(Relocate->getBasePtr());
        SI.Ptrs.push_back(Relocate->getDerivedPtr());
-@@ -1107,6 +1262,8 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
+@@ -1107,6 +1263,8 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
    }
  
    SI.GCArgs = ArrayRef<const Use>(I.gc_args_begin(), I.gc_args_end());
@@ -37203,7 +37309,7 @@ index c5c093ae2..1c9a6aa23 100644
    SI.StatepointInstr = &I;
    SI.ID = I.getID();
  
-@@ -1118,12 +1275,21 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
+@@ -1118,12 +1276,21 @@ SelectionDAGBuilder::LowerStatepoint(const GCStatepointInst &I,
    SI.NumPatchBytes = I.getNumPatchBytes();
    SI.EHPadBB = EHPadBB;
  
@@ -37227,7 +37333,7 @@ index c5c093ae2..1c9a6aa23 100644
      // The return value is not needed, just generate a poison value.
      // Note: This covers the void return case.
      setValue(&I, DAG.getIntPtrConstant(-1, getCurSDLoc()));
-@@ -1225,7 +1391,28 @@ void SelectionDAGBuilder::visitGCResult(const GCResultInst &CI) {
+@@ -1225,7 +1392,28 @@ void SelectionDAGBuilder::visitGCResult(const GCResultInst &CI) {
    setValue(&CI, CopyFromReg);
  }
  
@@ -37257,7 +37363,7 @@ index c5c093ae2..1c9a6aa23 100644
    const Value *Statepoint = Relocate.getStatepoint();
  #ifndef NDEBUG
    // Consistency check
-@@ -1237,15 +1424,23 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
+@@ -1237,15 +1425,23 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
    if (isa<UndefValue>(Statepoint))
      return;
  
@@ -37287,7 +37393,7 @@ index c5c093ae2..1c9a6aa23 100644
    auto &RelocationMap =
        FuncInfo.StatepointRelocationMaps[cast<GCStatepointInst>(Statepoint)];
    auto SlotIt = RelocationMap.find(&Relocate);
-@@ -1257,7 +1452,7 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
+@@ -1257,7 +1453,7 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
      assert(cast<GCStatepointInst>(Statepoint)->getParent() ==
                 Relocate.getParent() &&
             "Nonlocal gc.relocate mapped via SDValue");
@@ -37296,7 +37402,17 @@ index c5c093ae2..1c9a6aa23 100644
      assert(SDV.getNode() && "empty SDValue");
      setValue(&Relocate, SDV);
      return;
-@@ -1310,8 +1505,7 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
+@@ -1301,7 +1497,8 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
+                                                            Relocate.getType());
+ 
+     SDValue SpillLoad =
+-        DAG.getLoad(LoadVT, getCurSDLoc(), Chain, SpillSlot, LoadMMO);
++        DAG.getLoad(LoadVT, CJPipeline ? SDLoc() : getCurSDLoc(), Chain,
++                    SpillSlot, LoadMMO);
+     PendingLoads.push_back(SpillLoad.getValue(1));
+ 
+     assert(SpillLoad.getNode());
+@@ -1310,8 +1507,7 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
    }
  
    assert(Record.type == RecordType::NoRelocate);
@@ -37306,7 +37422,7 @@ index c5c093ae2..1c9a6aa23 100644
    if (SD.isUndef() && SD.getValueType().getSizeInBits() <= 64) {
      // Lowering relocate(undef) as arbitrary constant. Current constant value
      // is chosen such that it's unlikely to be a valid pointer.
-@@ -1321,7 +1515,14 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
+@@ -1321,7 +1517,14 @@ void SelectionDAGBuilder::visitGCRelocate(const GCRelocateInst &Relocate) {
  
    // We didn't need to spill these special cases (constants and allocas).
    // See the handling in spillIncomingValueForStatepoint for detail.
@@ -37432,7 +37548,7 @@ index 94149f56e..2e22299ea 100644
        // This block has uses. Find the first and last uses in the block.
        BI.FirstInstr = *UseI;
 diff --git a/llvm/lib/CodeGen/StackMaps.cpp b/llvm/lib/CodeGen/StackMaps.cpp
-index ccaff862f..9c394aa63 100644
+index ccaff862f..7687af951 100644
 --- a/llvm/lib/CodeGen/StackMaps.cpp
 +++ b/llvm/lib/CodeGen/StackMaps.cpp
 @@ -11,14 +11,22 @@
@@ -37692,7 +37808,7 @@ index ccaff862f..9c394aa63 100644
 +}
 +
 +bool StatepointOpers::isCJStackCheck() {
-+  return getID() == CJStatepointID::StackCheck;
++  return getID() == Cangjie::CJStatepointID::StackCheck;
 +}
 +
  StackMaps::StackMaps(AsmPrinter &AP) : AP(AP) {
@@ -38271,7 +38387,7 @@ index ccaff862f..9c394aa63 100644
 +  // get Line number from debug info
 +  uint32_t Line = 0;
 +  if (MI.getOpcode() == TargetOpcode::STATEPOINT) {
-+    if (OpersInfo.ID == CJStatepointID::StackCheck &&
++    if (OpersInfo.ID == Cangjie::CJStatepointID::StackCheck &&
 +        MI.getMF()->getFunction().getSubprogram() != nullptr) {
 +      Line = MI.getMF()->getFunction().getSubprogram()->getLine();
 +    }
@@ -39198,10 +39314,10 @@ index a342a4dd1..b9cb176e9 100644
  
      assert(MIB->mayLoad() && "Folded a stackmap use to a non-load!");
 diff --git a/llvm/lib/CodeGen/TargetLoweringObjectFileImpl.cpp b/llvm/lib/CodeGen/TargetLoweringObjectFileImpl.cpp
-index 2badbe34a..9d3a43a04 100644
+index 2badbe34a..a625ed651 100644
 --- a/llvm/lib/CodeGen/TargetLoweringObjectFileImpl.cpp
 +++ b/llvm/lib/CodeGen/TargetLoweringObjectFileImpl.cpp
-@@ -593,6 +593,78 @@ static unsigned getEntrySizeForKind(SectionKind Kind) {
+@@ -593,6 +593,82 @@ static unsigned getEntrySizeForKind(SectionKind Kind) {
    }
  }
  
@@ -39218,6 +39334,8 @@ index 2badbe34a..9d3a43a04 100644
 +    return ".cjmetadata.gctib";
 +  if (Kind.isCJMTable())
 +    return ".cjmetadata.mtable";
++  if (Kind.isCJTypeExt())
++    return ".cjmetadata.type.ext";
 +  if (Kind.isCJReflectPkgInfo())
 +    return ".cjmetadata.reflect.pkginfo";
 +  if (Kind.isCJReflectGV())
@@ -39266,6 +39384,8 @@ index 2badbe34a..9d3a43a04 100644
 +    return "__cjgctib";
 +  if (Kind.isCJMTable())
 +    return "__cjmtable";
++  if (Kind.isCJTypeExt())
++    return "__cjtype_ext";
 +  if (Kind.isCJReflectPkgInfo())
 +    return "__cjref_pkginfo";
 +  if (Kind.isCJReflectGV())
@@ -39280,7 +39400,7 @@ index 2badbe34a..9d3a43a04 100644
  /// Return the section prefix name used by options FunctionsSections and
  /// DataSections.
  static StringRef getSectionPrefixForGlobal(SectionKind Kind) {
-@@ -610,6 +682,8 @@ static StringRef getSectionPrefixForGlobal(SectionKind Kind) {
+@@ -610,6 +686,8 @@ static StringRef getSectionPrefixForGlobal(SectionKind Kind) {
      return ".data";
    if (Kind.isReadOnlyWithRel())
      return ".data.rel.ro";
@@ -39289,7 +39409,7 @@ index 2badbe34a..9d3a43a04 100644
    llvm_unreachable("Unknown section kind");
  }
  
-@@ -618,6 +692,12 @@ getELFSectionNameForGlobal(const GlobalObject *GO, SectionKind Kind,
+@@ -618,6 +696,12 @@ getELFSectionNameForGlobal(const GlobalObject *GO, SectionKind Kind,
                             Mangler &Mang, const TargetMachine &TM,
                             unsigned EntrySize, bool UniqueSectionName) {
    SmallString<128> Name;
@@ -39302,7 +39422,7 @@ index 2badbe34a..9d3a43a04 100644
    if (Kind.isMergeableCString()) {
      // We also need alignment here.
      // FIXME: this is getting the alignment of the character, not the
-@@ -630,6 +710,8 @@ getELFSectionNameForGlobal(const GlobalObject *GO, SectionKind Kind,
+@@ -630,6 +714,8 @@ getELFSectionNameForGlobal(const GlobalObject *GO, SectionKind Kind,
    } else if (Kind.isMergeableConst()) {
      Name = ".rodata.cst";
      Name += utostr(EntrySize);
@@ -39311,7 +39431,7 @@ index 2badbe34a..9d3a43a04 100644
    } else {
      Name = getSectionPrefixForGlobal(Kind);
    }
-@@ -763,9 +845,14 @@ static MCSection *selectExplicitSectionGlobal(
+@@ -763,9 +849,14 @@ static MCSection *selectExplicitSectionGlobal(
        SectionName = Attrs.getAttribute("data-section").getValueAsString();
      }
    }
@@ -39329,7 +39449,7 @@ index 2badbe34a..9d3a43a04 100644
    }
  
    // Infer section flags from the section name if we can.
-@@ -1249,8 +1336,12 @@ MCSection *TargetLoweringObjectFileMachO::getExplicitSectionGlobal(
+@@ -1249,8 +1340,12 @@ MCSection *TargetLoweringObjectFileMachO::getExplicitSectionGlobal(
    StringRef SectionName = GO->getSection();
  
    const Function *F = dyn_cast<Function>(GO);
@@ -39344,7 +39464,7 @@ index 2badbe34a..9d3a43a04 100644
    }
  
    // Parse the section specifier and create it if valid.
-@@ -1301,6 +1392,10 @@ MCSection *TargetLoweringObjectFileMachO::SelectSectionForGlobal(
+@@ -1301,6 +1396,10 @@ MCSection *TargetLoweringObjectFileMachO::SelectSectionForGlobal(
    if (Kind.isText())
      return GO->isWeakForLinker() ? TextCoalSection : TextSection;
  
@@ -39355,7 +39475,7 @@ index 2badbe34a..9d3a43a04 100644
    // If this is weak/linkonce, put this in a coalescable section, either in text
    // or data depending on if it is writable.
    if (GO->isWeakForLinker()) {
-@@ -1618,6 +1713,11 @@ MCSection *TargetLoweringObjectFileCOFF::getExplicitSectionGlobal(
+@@ -1618,6 +1717,11 @@ MCSection *TargetLoweringObjectFileCOFF::getExplicitSectionGlobal(
    int Selection = 0;
    unsigned Characteristics = getCOFFSectionFlags(Kind, TM);
    StringRef Name = GO->getSection();
@@ -39367,7 +39487,7 @@ index 2badbe34a..9d3a43a04 100644
    StringRef COMDATSymName = "";
    if (GO->hasComdat()) {
      Selection = getSelectionForCOFF(GO);
-@@ -1649,6 +1749,8 @@ static StringRef getCOFFSectionNameForUniqueGlobal(SectionKind Kind) {
+@@ -1649,6 +1753,8 @@ static StringRef getCOFFSectionNameForUniqueGlobal(SectionKind Kind) {
      return ".tls$";
    if (Kind.isReadOnly() || Kind.isReadOnlyWithRel())
      return ".rdata";
@@ -39376,7 +39496,7 @@ index 2badbe34a..9d3a43a04 100644
    return ".data";
  }
  
-@@ -1714,6 +1816,14 @@ MCSection *TargetLoweringObjectFileCOFF::SelectSectionForGlobal(
+@@ -1714,6 +1820,14 @@ MCSection *TargetLoweringObjectFileCOFF::SelectSectionForGlobal(
    if (Kind.isReadOnly() || Kind.isReadOnlyWithRel())
      return ReadOnlySection;
  
@@ -41430,15 +41550,16 @@ index 5d3fa28f7..e22cadf61 100644
 +  return nullptr;
 +}
 diff --git a/llvm/lib/IR/Statepoint.cpp b/llvm/lib/IR/Statepoint.cpp
-index 508e3cb71..cddccaced 100644
+index 508e3cb71..498887708 100644
 --- a/llvm/lib/IR/Statepoint.cpp
 +++ b/llvm/lib/IR/Statepoint.cpp
-@@ -38,3 +38,20 @@ llvm::parseStatepointDirectivesFromAttrs(AttributeList AS) {
+@@ -38,3 +38,21 @@ llvm::parseStatepointDirectivesFromAttrs(AttributeList AS) {
  
    return Result;
  }
 +
 +uint64_t llvm::getCJStatepointID(CallBase *Call) {
++  using namespace Cangjie;
 +  Function *Callee = Call->getCalledFunction();
 +  if (!Callee)
 +    return CJStatepointID::Default;
@@ -42252,7 +42373,7 @@ index f358f593f..9c85d47af 100644
              Section == getContext().getObjectFileInfo()->getStackMapSection())
             && "Creating regular section after DWARF");
 diff --git a/llvm/lib/MC/MCObjectFileInfo.cpp b/llvm/lib/MC/MCObjectFileInfo.cpp
-index d6fe952c0..f18cda8c3 100644
+index d6fe952c0..b01916ab6 100644
 --- a/llvm/lib/MC/MCObjectFileInfo.cpp
 +++ b/llvm/lib/MC/MCObjectFileInfo.cpp
 @@ -23,6 +23,7 @@
@@ -42263,7 +42384,7 @@ index d6fe952c0..f18cda8c3 100644
  #include "llvm/Support/Casting.h"
  
  using namespace llvm;
-@@ -327,6 +328,51 @@ void MCObjectFileInfo::initMachOMCObjectFileInfo(const Triple &T) {
+@@ -327,6 +328,52 @@ void MCObjectFileInfo::initMachOMCObjectFileInfo(const Triple &T) {
  #include "llvm/BinaryFormat/Swift.def"
    }
  
@@ -42277,7 +42398,8 @@ index d6fe952c0..f18cda8c3 100644
 +                                           SectionKind::getReadOnly());
 +  CJTypeFieldsSection = Ctx->getMachOSection("__CJ_METADATA", "__cj_fields", 0,
 +                                             SectionKind::getReadOnly());
-+
++  CJTypeExtSection = Ctx->getMachOSection("__CJ_METADATA", "__cjtype_ext", 0,
++                                          SectionKind::getReadOnly());
 +  CJMtableSection = Ctx->getMachOSection("__CJ_METADATA", "__cjmtable", 0,
 +                                         SectionKind::getReadOnly());
 +  CJInnerTypeExtensionsSection = Ctx->getMachOSection(
@@ -42315,7 +42437,7 @@ index d6fe952c0..f18cda8c3 100644
    TLSExtraDataSection = TLSTLVSection;
  }
  
-@@ -531,6 +577,71 @@ void MCObjectFileInfo::initELFMCObjectFileInfo(const Triple &T, bool Large) {
+@@ -531,6 +578,72 @@ void MCObjectFileInfo::initELFMCObjectFileInfo(const Triple &T, bool Large) {
    PseudoProbeSection = Ctx->getELFSection(".pseudo_probe", DebugSecType, 0);
    PseudoProbeDescSection =
        Ctx->getELFSection(".pseudo_probe_desc", DebugSecType, 0);
@@ -42334,7 +42456,8 @@ index d6fe952c0..f18cda8c3 100644
 +  CJTypeFieldsSection =
 +      Ctx->getELFSection(".cjmetadata.type.fields", ELF::SHT_PROGBITS,
 +                         ELF::SHF_ALLOC | ELF::SHF_WRITE);
-+
++  CJTypeExtSection = Ctx->getELFSection(".cjmetadata.type.ext", ELF::SHT_PROGBITS,
++                                       ELF::SHF_ALLOC | ELF::SHF_WRITE);
 +  // VTable/ITable
 +  CJMtableSection = Ctx->getELFSection(".cjmetadata.mtable", ELF::SHT_PROGBITS,
 +                                       ELF::SHF_ALLOC | ELF::SHF_WRITE);
@@ -42387,7 +42510,7 @@ index d6fe952c0..f18cda8c3 100644
  }
  
  void MCObjectFileInfo::initGOFFMCObjectFileInfo(const Triple &T) {
-@@ -788,7 +899,7 @@ void MCObjectFileInfo::initCOFFMCObjectFileInfo(const Triple &T) {
+@@ -788,7 +901,7 @@ void MCObjectFileInfo::initCOFFMCObjectFileInfo(const Triple &T) {
        SectionKind::getData());
  
    XDataSection = Ctx->getCOFFSection(
@@ -42396,7 +42519,7 @@ index d6fe952c0..f18cda8c3 100644
        SectionKind::getData());
  
    SXDataSection = Ctx->getCOFFSection(".sxdata", COFF::IMAGE_SCN_LNK_INFO,
-@@ -819,6 +930,112 @@ void MCObjectFileInfo::initCOFFMCObjectFileInfo(const Triple &T) {
+@@ -819,6 +932,116 @@ void MCObjectFileInfo::initCOFFMCObjectFileInfo(const Triple &T) {
                     COFF::IMAGE_SCN_MEM_WRITE,
        SectionKind::getData());
  
@@ -42422,7 +42545,11 @@ index d6fe952c0..f18cda8c3 100644
 +      COFF::IMAGE_SCN_CNT_INITIALIZED_DATA | COFF::IMAGE_SCN_MEM_READ |
 +          COFF::IMAGE_SCN_MEM_WRITE,
 +      SectionKind::getData());
-+
++  CJTypeExtSection = Ctx->getCOFFSection(".cjmetadata.type.ext",
++                                        COFF::IMAGE_SCN_CNT_INITIALIZED_DATA |
++                                            COFF::IMAGE_SCN_MEM_READ |
++                                            COFF::IMAGE_SCN_MEM_WRITE,
++                                        SectionKind::getCJTypeExt());
 +  // VTable/ITable
 +  CJMtableSection = Ctx->getCOFFSection(".cjmtbl",
 +                                        COFF::IMAGE_SCN_CNT_INITIALIZED_DATA |
@@ -43447,7 +43574,7 @@ index 6696d158b..1255795b2 100644
        .StartsWith("vertex", Triple::Vertex)
        .StartsWith("geometry", Triple::Geometry)
 diff --git a/llvm/lib/Target/AArch64/AArch64AsmPrinter.cpp b/llvm/lib/Target/AArch64/AArch64AsmPrinter.cpp
-index c568f7347..d6870018a 100644
+index c568f7347..a1843aac8 100644
 --- a/llvm/lib/Target/AArch64/AArch64AsmPrinter.cpp
 +++ b/llvm/lib/Target/AArch64/AArch64AsmPrinter.cpp
 @@ -32,6 +32,7 @@
@@ -43909,15 +44036,15 @@ index c568f7347..d6870018a 100644
 +  const MachineOperand &CallTarget = SOpers.getCallTarget();
 +  if (CJPipeline) {
 +    uint64_t ID = SOpers.getID();
-+    if (ID == CJStatepointID::Safepoint) {
++    if (ID == Cangjie::CJStatepointID::Safepoint) {
 +      emitCangjieSafepoint(MI);
 +      return;
 +    }
-+    if (ID == CJStatepointID::StackCheck) {
++    if (ID == Cangjie::CJStatepointID::StackCheck) {
 +      emitCangjieStackCheck(MI);
 +      return;
 +    }
-+    if (ID == CJStatepointID::NewArrayFast) {
++    if (ID == Cangjie::CJStatepointID::NewArrayFast) {
 +      emitCJNewArrayFastPath(MI, CallTarget);
 +      return;
 +    }
@@ -44950,7 +45077,7 @@ index ff3bfe897..3276e7f4b 100644
    SDValue LowerSET_ROUNDING(SDValue Op, SelectionDAG &DAG) const;
    SDValue LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
 diff --git a/llvm/lib/Target/AArch64/AArch64InstrInfo.cpp b/llvm/lib/Target/AArch64/AArch64InstrInfo.cpp
-index 835a7b6cc..72ecd9223 100644
+index 835a7b6cc..e670e59e9 100644
 --- a/llvm/lib/Target/AArch64/AArch64InstrInfo.cpp
 +++ b/llvm/lib/Target/AArch64/AArch64InstrInfo.cpp
 @@ -33,6 +33,7 @@
@@ -44978,7 +45105,7 @@ index 835a7b6cc..72ecd9223 100644
 +  const MachineOperand *MOSym = nullptr;
 +  if (MI.getOpcode() == TargetOpcode::STATEPOINT) {
 +    StatepointOpers SO(&MI);
-+    if (SO.getID() == CJStatepointID::NewArrayFast) {
++    if (SO.getID() == Cangjie::CJStatepointID::NewArrayFast) {
 +      return 52; // 52: 52 bytes(13 insts) for new array call
 +    }
 +    MOSym = &(SO.getCallTarget());
@@ -46007,10 +46134,10 @@ index 4c24d7020..f2a8b4124 100644
    }
  
 diff --git a/llvm/lib/Target/TargetLoweringObjectFile.cpp b/llvm/lib/Target/TargetLoweringObjectFile.cpp
-index 29cc28403..35f1aa816 100644
+index 29cc28403..1ddd4ea6a 100644
 --- a/llvm/lib/Target/TargetLoweringObjectFile.cpp
 +++ b/llvm/lib/Target/TargetLoweringObjectFile.cpp
-@@ -213,6 +213,29 @@ SectionKind TargetLoweringObjectFile::getKindForGlobal(const GlobalObject *GO,
+@@ -213,6 +213,31 @@ SectionKind TargetLoweringObjectFile::getKindForGlobal(const GlobalObject *GO,
    // Global variables require more detailed analysis.
    const auto *GVar = cast<GlobalVariable>(GO);
  
@@ -46026,6 +46153,8 @@ index 29cc28403..35f1aa816 100644
 +    return SectionKind::getCJGCTib();
 +  if (GVar->isCJMTable())
 +    return SectionKind::getCJMTable();
++  if (GVar->isCJTypeExt())
++    return SectionKind::getCJTypeExt();
 +  if (GVar->isCJReflectPkgInfo())
 +    return SectionKind::getCJReflectPkgInfo();
 +  if (GVar->isCJReflectGV())
@@ -46040,7 +46169,7 @@ index 29cc28403..35f1aa816 100644
    // Handle thread-local data first.
    if (GVar->isThreadLocal()) {
      if (isSuitableForBSS(GVar) && !TM.Options.NoZerosInBSS) {
-@@ -335,8 +358,11 @@ MCSection *TargetLoweringObjectFile::SectionForGlobal(
+@@ -335,8 +360,11 @@ MCSection *TargetLoweringObjectFile::SectionForGlobal(
    }
  
    if (auto *F = dyn_cast<Function>(GO)) {
@@ -46825,7 +46954,7 @@ index 81729e361..ea96d3ac9 100644
    void reMaterialize(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
                       Register DestReg, unsigned SubIdx,
 diff --git a/llvm/lib/Target/X86/X86MCInstLower.cpp b/llvm/lib/Target/X86/X86MCInstLower.cpp
-index 3fbdb18a0..710e386b3 100644
+index 3fbdb18a0..afac7d32b 100644
 --- a/llvm/lib/Target/X86/X86MCInstLower.cpp
 +++ b/llvm/lib/Target/X86/X86MCInstLower.cpp
 @@ -17,6 +17,7 @@
@@ -47200,15 +47329,15 @@ index 3fbdb18a0..710e386b3 100644
 +  const MachineOperand &CallTarget = SOpers.getCallTarget();
 +  if (CJPipeline) {
 +    uint64_t ID = SOpers.getID();
-+    if (ID == CJStatepointID::Safepoint) {
++    if (ID == Cangjie::CJStatepointID::Safepoint) {
 +      emitCangjieSafepoint(MI);
 +      return;
 +    }
-+    if (ID == CJStatepointID::StackCheck) {
++    if (ID == Cangjie::CJStatepointID::StackCheck) {
 +      emitCangjieStackCheck(MI);
 +      return;
 +    }
-+    if (ID == CJStatepointID::NewArrayFast) {
++    if (ID == Cangjie::CJStatepointID::NewArrayFast) {
 +      emitCJNewArrayFastPath(MI, CallTarget);
 +      return;
 +    }
@@ -55809,10 +55938,10 @@ index 000000000..0c2cf4030
 +}
 diff --git a/llvm/lib/Transforms/Obfuscator/LayoutObfuscator.cpp b/llvm/lib/Transforms/Obfuscator/LayoutObfuscator.cpp
 new file mode 100644
-index 000000000..ba9992995
+index 000000000..411a3de25
 --- /dev/null
 +++ b/llvm/lib/Transforms/Obfuscator/LayoutObfuscator.cpp
-@@ -0,0 +1,557 @@
+@@ -0,0 +1,560 @@
 +//===---------------------- LayoutObfuscator.cpp --------------------------===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -56102,6 +56231,9 @@ index 000000000..ba9992995
 +    "CFileVTable",
 +    "CFileMTable",
 +    "CFileStaticGenericTI",
++    "Reflection",
++    "ReflectionGV",
++    "CFileTIExt",
 +  };
 +  if (GlobalName.empty() || G.getName().startswith("llvm.")) {
 +    return false;
@@ -58160,10 +58292,10 @@ index 000000000..ec520a138
 +}
 diff --git a/llvm/lib/Transforms/Scalar/CJFillMetadata.cpp b/llvm/lib/Transforms/Scalar/CJFillMetadata.cpp
 new file mode 100644
-index 000000000..7a0ebceff
+index 000000000..f527f64da
 --- /dev/null
 +++ b/llvm/lib/Transforms/Scalar/CJFillMetadata.cpp
-@@ -0,0 +1,1558 @@
+@@ -0,0 +1,1567 @@
 +//===- CJFillMetadata.cpp - Fill Cangjie Metadata ---------------*- C++ -*-===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -58584,6 +58716,9 @@ index 000000000..7a0ebceff
 +  IsInterfaceTypeInfo =
 +      cast<ConstantInt>(Data->getOperand(ET_IS_INTERFACE_TYPEINFO))
 +          ->getZExtValue();
++  Flag = cast<ConstantInt>(Data->getOperand(ET_FLAG))->getZExtValue();
++  FuncTableSize =
++      cast<ConstantInt>(Data->getOperand(ET_FUNC_TABLE_SIZE))->getSExtValue();
 +  auto CE = dyn_cast<ConstantExpr>(Data->getOperand(ET_TARGET_TYPE));
 +  TargetType = dyn_cast<GlobalVariable>(CE->getOperand(0));
 +  CE = dyn_cast<ConstantExpr>(Data->getOperand(ET_INTERFACE_FN));
@@ -59501,6 +59636,9 @@ index 000000000..7a0ebceff
 +      assert(TT.isSyncClass() && "Not a Future TypeTemplate!");
 +      Flag |= TF_FUTURE_CLASS;
 +    }
++    if (GV->hasAttribute("HasExtPart")) {
++      Flag |= TF_HAS_EXT_PART;
++    }
 +    if (Reflector.enable(M)) {
 +      Flag |= TF_REFLECTION;
 +    }
@@ -59593,6 +59731,9 @@ index 000000000..7a0ebceff
 +
 +    if (Reflector.enable(M))
 +      Flag |= TF_REFLECTION;
++
++    if (TI->hasAttribute("HasExtPart"))
++      Flag |= TF_HAS_EXT_PART;
 +
 +    return Flag;
 +  }
@@ -67921,10 +68062,10 @@ index 000000000..41e896873
 +}
 diff --git a/llvm/lib/Transforms/Scalar/CJRuntimeLowering.cpp b/llvm/lib/Transforms/Scalar/CJRuntimeLowering.cpp
 new file mode 100644
-index 000000000..222631033
+index 000000000..b48ea3e5a
 --- /dev/null
 +++ b/llvm/lib/Transforms/Scalar/CJRuntimeLowering.cpp
-@@ -0,0 +1,1140 @@
+@@ -0,0 +1,1148 @@
 +//===- CJRuntimeLowering.cpp - CJ Runtime Lowering --------------*- C++ -*-===//
 +//
 +// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
@@ -67996,7 +68137,9 @@ index 000000000..222631033
 +    {Intrinsic::cj_malloc_object, "CJ_MCC_NewObject"},
 +    {Intrinsic::cj_alloca_generic, "CJ_MCC_NewObject"},
 +    {Intrinsic::cj_malloc_array_generic, "CJ_MCC_NewArrayGeneric"},
++    {Intrinsic::cj_get_vtable_func, "CJ_MCC_UpdateVMT"},
 +    {Intrinsic::cj_get_mtable_func, "CJ_MCC_GetMTable"},
++    {Intrinsic::cj_get_method_outertype, "CJ_MCC_GetMethodOuterTI"},
 +    {Intrinsic::cj_acquire_rawdata, "CJ_MCC_AcquireRawData"},
 +    {Intrinsic::cj_release_rawdata, "CJ_MCC_ReleaseRawData"},
 +    {Intrinsic::cj_post_throw_exception, "CJ_MCC_PostThrowException"},
@@ -68256,24 +68399,23 @@ index 000000000..222631033
 +
 +    auto *TI = CI->getArgOperand(0)->stripPointerCasts();
 +    auto *GV = dyn_cast<GlobalVariable>(TI);
-+    // In Cangjie, non-fixed size classes allow member variable extension
-+    // compatibility, so the size needs to be explicitly loaded from typeinfo.
-+    if (!GV || !GV->hasAttribute("can_malloc_with_fixed_size")) {
-+      IRBuilder<> IRB(CI);
-+      auto *Ptr = GetTISizePointer(TI, IRB);
-+      assert(Ptr->getType()->getNonOpaquePointerElementType() ==
-+             IRB.getInt32Ty());
-+      auto *LI = dyn_cast<Instruction>(IRB.CreateLoad(IRB.getInt32Ty(), Ptr));
-+      LI->setDebugLoc(CI->getDebugLoc());
-+      return VariableSizeAlign(LI, IRB);
++    if (CI->hasMetadata("TrustedSize") ||
++        (GV && GV->hasAttribute("NotModifiableClass"))) {
++          if (auto *SizeVar = dyn_cast<ConstantInt>(CI->getArgOperand(1)))
++            return ConstantSizeAlign(SizeVar->getZExtValue());
++          if (GV && GV->hasInitializer())
++            return ConstantSizeAlign(TypeInfo(GV).getSize());
++          IRBuilder<> IRB(CI);
++          VariableSizeAlign(CI->getArgOperand(1), IRB);
 +    }
-+    if (auto *SizeVar = dyn_cast<ConstantInt>(CI->getArgOperand(1)))
-+      return ConstantSizeAlign(SizeVar->getZExtValue());
-+    if (GV && GV->hasInitializer())
-+      return ConstantSizeAlign(TypeInfo(GV).getSize());
-+
 +    IRBuilder<> IRB(CI);
-+    VariableSizeAlign(CI->getArgOperand(1), IRB);
++    auto *Ptr = GetTISizePointer(TI, IRB);
++    assert(Ptr->getType()->getNonOpaquePointerElementType() ==
++           IRB.getInt32Ty());
++    auto *LI = dyn_cast<Instruction>(IRB.CreateLoad(IRB.getInt32Ty(), Ptr));
++    LI->setMetadata(LLVMContext::MD_invariant_load, MDNode::get(LI->getContext(), {}));
++    LI->setDebugLoc(CI->getDebugLoc());
++    return VariableSizeAlign(LI, IRB);
 +  }
 +
 +  void replaceFixedNewObject(CallBase *&CI) {
@@ -68451,6 +68593,7 @@ index 000000000..222631033
 +  // %2 = load i8**, i8*** %1
 +  // %3 = getelementptr i8*, i8** %2, %index_type
 +  // %4 = load i8*, i8** %3
++  // TryUpdateMTable
 +  // %5 = bitcast i8* %4 to %ExDef*
 +  // %6 = getelementptr inbounds %ExDef, %ExDef* %5, i64 0, i32 ET_FUNC_TABLE
 +  // %7 = bitcast i8* %6 to i8***
@@ -68480,6 +68623,13 @@ index 000000000..222631033
 +        IRB.CreateLoad(GEP1->getType()->getNonOpaquePointerElementType(), GEP1);
 +    LI1->setMetadata(LLVMContext::MD_invariant_load,
 +                     MDNode::get(CB->getContext(), {}));
++
++    auto *Int8PtrTy = Type::getInt8PtrTy(C);
++    auto *Callee = getOrInsertRuntimeFunc(CB, true, false,
++      // CJ_MCC_UpdateVMT: void(*)(i8*, i8*, i8*)
++      FunctionType::get(Type::getVoidTy(C), {Int8PtrTy, Int8PtrTy, Int8PtrTy}, false));
++    IRB.CreateCall(Callee, {CB->getArgOperand(0), CB->getArgOperand(3), LI1});
++
 +    auto *BS1 = IRB.CreateBitCast(
 +        LI1, StructType::getTypeByName(CB->getContext(), "ExtensionDef")
 +                 ->getPointerTo());
@@ -68535,6 +68685,13 @@ index 000000000..222631033
 +                    CB->getMetadata(LLVMContext::MD_obj_type));
 +    CB->replaceAllUsesWith(LI);
 +    CB->eraseFromParent();
++  }
++
++  void replaceGetMethodOuterType(CallBase *CB) {
++    auto *Callee = getOrInsertRuntimeFunc(CB, true, false,
++      // CJ_MCC_GetMethodOuterType: TypeInfo*(*)(i8*, i8*, i64 index)
++      CB->getFunctionType());
++    CB->setCalledFunction(Callee);
 +  }
 +
 +  void replaceDivisionCheck() {
@@ -68616,6 +68773,30 @@ index 000000000..222631033
 +    CI->replaceAllUsesWith(NewCI);
 +    CI->eraseFromParent();
 +    return true;
++  }
++
++  void loweringMallocObject(CallBase *&CI) {
++    const MDNode *MD = CI->getMetadata("MallocType");
++    if (MD == nullptr) {
++      setHeapMallocSizeAlign(CI);
++      replaceWithRuntimeFunc(CI, false, true);
++    } else {
++      StringRef Ty = dyn_cast<MDString>(MD->getOperand(0).get())->getString();
++      if (Ty.equals("HasFinalizer")) {
++        setHeapMallocSizeAlign(CI);
++        replaceNewFinalizerFunc(CI);
++      } else if (Ty.equals("Future") || Ty.equals("Mutex") ||
++                 Ty.equals("Monitor") || Ty.equals("WaitQueue")) {
++        replaceFixedNewObject(CI);
++      } else if (Ty.equals("WeakRef")) {
++        setHeapMallocSizeAlign(CI);
++        replaceNewWeakRefFunc(CI);
++      } else {
++        setHeapMallocSizeAlign(CI);
++        replaceWithRuntimeFunc(CI, false, true);
++      }
++    }
++    CI->addRetAttr(Attribute::NoAlias);
 +  }
 +
 +private:
@@ -68809,22 +68990,6 @@ index 000000000..222631033
 +  CJFuncGV->addAttribute("cj-native");
 +}
 +
-+static TypeFlag getMallocType(CallBase *CB) {
-+  const MDNode *MD = CB->getMetadata("MallocType");
-+  if (MD == nullptr)
-+    return TF_NONE;
-+
-+  StringRef Ty = dyn_cast<MDString>(MD->getOperand(0).get())->getString();
-+  return StringSwitch<TypeFlag>(Ty)
-+      .Case("HasFinalizer", TF_HAS_FINALIZER)
-+      .Case("Future", TF_FUTURE_CLASS)
-+      .Case("Mutex", TF_MUTEX_CLASS)
-+      .Case("Monitor", TF_MONITOR_CLASS)
-+      .Case("WaitQueue", TF_WAIT_QUEUE_CLASS)
-+      .Case("WeakRef", TF_WEAK_REF_CLASS)
-+      .Default(TF_NONE);
-+}
-+
 +// Declares MCC functions ready for backend processing.
 +static void declareRuntimeFunc(Module &M) {
 +  LLVMContext &C = M.getContext();
@@ -68916,6 +69081,10 @@ index 000000000..222631033
 +      Lowering.replaceGetMTableFunc(CI);
 +      Changed = true;
 +      break;
++    case Intrinsic::cj_get_method_outertype:
++      Lowering.replaceGetMethodOuterType(CI);
++      Changed = true;
++      break;
 +    case Intrinsic::cj_throw_exception:
 +      if (Triple(F.getParent()->getTargetTriple()).isOSWindows()) {
 +        // For windows, throw_exception need stackmap, beacuse runtime stack
@@ -68927,28 +69096,8 @@ index 000000000..222631033
 +      Changed = true;
 +      break;
 +    case Intrinsic::cj_malloc_object: {
++      Lowering.loweringMallocObject(CI);
 +      Changed = true;
-+      switch (getMallocType(CI)) {
-+      case TF_HAS_FINALIZER:
-+        Lowering.setHeapMallocSizeAlign(CI);
-+        Lowering.replaceNewFinalizerFunc(CI);
-+        break;
-+      case TF_FUTURE_CLASS:
-+      case TF_MUTEX_CLASS:
-+      case TF_MONITOR_CLASS:
-+      case TF_WAIT_QUEUE_CLASS:
-+        Lowering.replaceFixedNewObject(CI);
-+        break;
-+      case llvm::TF_WEAK_REF_CLASS:
-+        Lowering.setHeapMallocSizeAlign(CI);
-+        Lowering.replaceNewWeakRefFunc(CI);
-+        break;
-+      default:
-+        Lowering.setHeapMallocSizeAlign(CI);
-+        Lowering.replaceWithRuntimeFunc(CI, false, true);
-+        break;
-+      }
-+      CI->addRetAttr(Attribute::NoAlias);
 +      break;
 +    }
 +    case Intrinsic::cj_alloca_generic:
@@ -73044,7 +73193,7 @@ index 1f5bc69ac..731913aba 100644
    ++NumCallSlot;
    return true;
 diff --git a/llvm/lib/Transforms/Scalar/PlaceSafepoints.cpp b/llvm/lib/Transforms/Scalar/PlaceSafepoints.cpp
-index e1cc3fc71..798487a6c 100644
+index e1cc3fc71..986b4150b 100644
 --- a/llvm/lib/Transforms/Scalar/PlaceSafepoints.cpp
 +++ b/llvm/lib/Transforms/Scalar/PlaceSafepoints.cpp
 @@ -47,16 +47,20 @@
@@ -73483,6 +73632,23 @@ index e1cc3fc71..798487a6c 100644
  
  static void
  InsertSafepointPoll(Instruction *InsertBefore,
+@@ -637,6 +871,16 @@ InsertSafepointPoll(Instruction *InsertBefore,
+          "gc.safepoint_poll declared with wrong type");
+   assert(!F->empty() && "gc.safepoint_poll must be a non-empty function");
+   CallInst *PollCall = CallInst::Create(F, "", InsertBefore);
++  BasicBlock::iterator FindDL(PollCall);
++  auto *DL = FindDL->getDebugLoc().get();
++  while (!DL) {
++    FindDL++;
++    if (FindDL == OrigBB->end())
++      break;
++
++    DL = FindDL->getDebugLoc().get();
++  }
++  PollCall->setDebugLoc(DL);
+ 
+   // Record some information about the call site we're replacing
+   BasicBlock::iterator Before(PollCall), After(PollCall);
 diff --git a/llvm/lib/Transforms/Scalar/RewriteStatepointsForGC.cpp b/llvm/lib/Transforms/Scalar/RewriteStatepointsForGC.cpp
 index baf407c50..0aa2889e8 100644
 --- a/llvm/lib/Transforms/Scalar/RewriteStatepointsForGC.cpp
@@ -90798,7 +90964,7 @@ index 000000000..5a21f307d
 \ No newline at end of file
 diff --git a/llvm/test/Transforms/CJDevirtualOpt/generic_itable.ll b/llvm/test/Transforms/CJDevirtualOpt/generic_itable.ll
 new file mode 100644
-index 000000000..cc5e2036e
+index 000000000..911c81dc0
 --- /dev/null
 +++ b/llvm/test/Transforms/CJDevirtualOpt/generic_itable.ll
 @@ -0,0 +1,46 @@
@@ -90806,14 +90972,14 @@ index 000000000..cc5e2036e
 +
 +%TypeTemplate = type { i8*, i8, i8, i16, i16, i8*, i8*, i8*, i8*, %ExtensionDef**, i16 }
 +%TypeInfo = type { i8*, i8, i8, i16, i32, i8*, i32, i8, i8, i16, i32*, i8*, i8*, i8*, %TypeInfo*, %ExtensionDef**, i8*, i8* }
-+%ExtensionDef = type { i32, i8, i8*, i8*, i8*, i8* }
++%ExtensionDef = type { i32, i8, i8, i16, i8*, i8*, i8*, i8* }
 +
 +@"default:A.tt" = internal global %TypeTemplate { i8* null, i8 -128, i8 0, i16 0, i16 1, i8* null, i8* null, i8* null, i8* null, %ExtensionDef** getelementptr inbounds ([2 x %ExtensionDef*], [2 x %ExtensionDef*]* @NonExternalExtensionDefs, i32 0, i32 0), i16 0 }
 +@"std.core:Object.ti" = external global %TypeInfo
 +@"default:A<Int32>.ti" = internal global %TypeInfo { i8* null, i8 -128, i8 0, i16 0, i32 0, i8* null, i32 0, i8 1, i8 1, i16 0, i32* null, i8* bitcast (%TypeTemplate* @"default:A.tt" to i8*), i8* null, i8* null, %TypeInfo* @"std.core:Object.ti", %ExtensionDef** getelementptr inbounds ([2 x %ExtensionDef*], [2 x %ExtensionDef*]* @NonExternalExtensionDefs, i32 0, i32 0), i8* null, i8* null } #0
 +@"default:I1.ti" = internal global %TypeInfo { i8* null, i8 -127, i8 0, i16 0, i32 0, i8* null, i32 0, i8 1, i8 0, i16 0, i32* null, i8* null, i8* null, i8* null, %TypeInfo* null, %ExtensionDef** null, i8* null, i8* null } #0
 +@"default:A<T>_ed_default:I1.ft" = internal global [1 x i8*] [i8* bitcast (i64 (i8 addrspace(1)*, %TypeInfo*)* @test_func_A to i8*)]
-+@"default:A<T>_ed_default:I1" = internal global %ExtensionDef { i32 0, i8 1, i8* bitcast (%TypeTemplate* @"default:A.tt" to i8*), i8* bitcast (%TypeInfo* @"default:I1.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:A<T>_ed_default:I1.ft" to i8*) }
++@"default:A<T>_ed_default:I1" = internal global %ExtensionDef { i32 0, i8 1, i8 0, i16 1, i8* bitcast (%TypeTemplate* @"default:A.tt" to i8*), i8* bitcast (%TypeInfo* @"default:I1.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:A<T>_ed_default:I1.ft" to i8*) }
 +
 +@NonExternalExtensionDefs = internal global [2 x %ExtensionDef*] [%ExtensionDef* @"default:A<T>_ed_default:I1", %ExtensionDef* null]
 +
@@ -90850,7 +91016,7 @@ index 000000000..cc5e2036e
 +!0 = !{i64 0}
 diff --git a/llvm/test/Transforms/CJDevirtualOpt/generic_vtable.ll b/llvm/test/Transforms/CJDevirtualOpt/generic_vtable.ll
 new file mode 100644
-index 000000000..c0e3f42a4
+index 000000000..018853ef6
 --- /dev/null
 +++ b/llvm/test/Transforms/CJDevirtualOpt/generic_vtable.ll
 @@ -0,0 +1,48 @@
@@ -90858,7 +91024,7 @@ index 000000000..c0e3f42a4
 +
 +%TypeTemplate = type { i8*, i8, i8, i16, i16, i8*, i8*, i8*, i8*, %ExtensionDef**, i16 }
 +%TypeInfo = type { i8*, i8, i8, i16, i32, i8*, i32, i8, i8, i16, i32*, i8*, i8*, i8*, %TypeInfo*, %ExtensionDef**, i8*, i8* }
-+%ExtensionDef = type { i32, i8, i8*, i8*, i8*, i8* }
++%ExtensionDef = type { i32, i8, i8, i16, i8*, i8*, i8*, i8* }
 +
 +@"std.core:Object.ti" = external global %TypeInfo
 +@"default:A.ti" = internal global %TypeInfo { i8* null, i8 -128, i8 0, i16 0, i32 0, i8* null, i32 0, i8 1, i8 0, i16 1, i32* null, i8* null, i8* null, i8* null, %TypeInfo* @"std.core:Object.ti", %ExtensionDef** getelementptr inbounds ([3 x %ExtensionDef*], [3 x %ExtensionDef*]* @NonExternalExtensionDefs, i32 0, i32 1), i8* null, i8* null } #0
@@ -90866,9 +91032,9 @@ index 000000000..c0e3f42a4
 +@"default:B<Int32>.ti" = internal global %TypeInfo { i8* null, i8 -128, i8 0, i16 0, i32 0, i8* null, i32 0, i8 1, i8 1, i16 1, i32* null, i8* bitcast (%TypeTemplate* @"default:B.tt" to i8*), i8* null, i8* null, %TypeInfo* @"default:A.ti", %ExtensionDef** getelementptr inbounds ([3 x %ExtensionDef*], [3 x %ExtensionDef*]* @NonExternalExtensionDefs, i32 0, i32 0), i8* null, i8* null } #0
 +
 +@"default:B<T>_ed_default:A.ft" = internal global [1 x i8*] [i8* bitcast (i64 (i8 addrspace(1)*, %TypeInfo*)* @test_func_B to i8*)]
-+@"default:B<T>_ed_default:A" = internal global %ExtensionDef { i32 1, i8 1, i8* bitcast (%TypeTemplate* @"default:B.tt" to i8*), i8* bitcast (%TypeInfo* @"default:A.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:B<T>_ed_default:A.ft" to i8*) }
++@"default:B<T>_ed_default:A" = internal global %ExtensionDef { i32 1, i8 1, i8 -128, i16 1, i8* bitcast (%TypeTemplate* @"default:B.tt" to i8*), i8* bitcast (%TypeInfo* @"default:A.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:B<T>_ed_default:A.ft" to i8*) }
 +@"default:A_ed_default:A.ft" = internal global [1 x i8*] [i8* bitcast (i64 (i8 addrspace(1)*, %TypeInfo*)* @test_func_A to i8*)]
-+@"default:A_ed_default:A" = internal global %ExtensionDef { i32 0, i8 1, i8* bitcast (%TypeInfo* @"default:A.ti" to i8*), i8* bitcast (%TypeInfo* @"default:A.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:A_ed_default:A.ft" to i8*) }
++@"default:A_ed_default:A" = internal global %ExtensionDef { i32 0, i8 1, i8 -128, i16 1, i8* bitcast (%TypeInfo* @"default:A.ti" to i8*), i8* bitcast (%TypeInfo* @"default:A.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:A_ed_default:A.ft" to i8*) }
 +@NonExternalExtensionDefs = internal global [3 x %ExtensionDef*] [%ExtensionDef* @"default:B<T>_ed_default:A", %ExtensionDef* @"default:A_ed_default:A", %ExtensionDef* null]
 +
 +; CHECK: [[TMP0:%.*]] = bitcast i8* bitcast (i64 (i8 addrspace(1)*, %TypeInfo*)* @test_func_B to i8*) to i64 (i8 addrspace(1)*, %TypeInfo*)*
@@ -90877,7 +91043,7 @@ index 000000000..c0e3f42a4
 +  %1 = bitcast i8 addrspace(1)* %ptr to %TypeInfo* addrspace(1)*
 +  %2 = load %TypeInfo*, %TypeInfo* addrspace(1)* %1, align 8
 +  %3 = bitcast %TypeInfo* %2 to i8*
-+  %4 = call i8* @llvm.cj.get.vtable.func(i8* %3, i64 0, i64 0), !IntroType !0
++  %4 = call i8* @llvm.cj.get.vtable.func(i8* %3, i64 0, i64 0, i8* bitcast (%TypeInfo* @"default:A.ti" to i8*)), !IntroType !0
 +  %5 = bitcast i8* %4 to i64 (i8 addrspace(1)*, %TypeInfo*)*
 +  %6 = call i64 %5(i8 addrspace(1)* %ptr, %TypeInfo* %2)
 +  ret i64 %6
@@ -90897,14 +91063,14 @@ index 000000000..c0e3f42a4
 +}
 +
 +declare i8 addrspace(1)* @CJ_MCC_NewObject(i8*, i32)
-+declare i8* @llvm.cj.get.vtable.func(i8*, i64, i64)
++declare i8* @llvm.cj.get.vtable.func(i8*, i64, i64, i8*)
 +
 +attributes #0 = { "CFileKlass" }
 +
 +!0 = !{!"default:A"}
 diff --git a/llvm/test/Transforms/CJDevirtualOpt/multi_generic_vtable.ll b/llvm/test/Transforms/CJDevirtualOpt/multi_generic_vtable.ll
 new file mode 100644
-index 000000000..1423af1ff
+index 000000000..702845579
 --- /dev/null
 +++ b/llvm/test/Transforms/CJDevirtualOpt/multi_generic_vtable.ll
 @@ -0,0 +1,73 @@
@@ -90912,7 +91078,7 @@ index 000000000..1423af1ff
 +
 +%TypeTemplate = type { i8*, i8, i8, i16, i16, i8*, i8*, i8*, i8*, %ExtensionDef**, i16 }
 +%TypeInfo = type { i8*, i8, i8, i16, i32, i8*, i32, i8, i8, i16, i32*, i8*, i8*, i8*, %TypeInfo*, %ExtensionDef**, i8*, i8* }
-+%ExtensionDef = type { i32, i8, i8*, i8*, i8*, i8* }
++%ExtensionDef = type { i32, i8, i8, i16, i8*, i8*, i8*, i8* }
 +
 +@"std.core:Object.ti" = external global %TypeInfo
 +@"default:A1.ti" = global %TypeInfo { i8* null, i8 -128, i8 0, i16 0, i32 0, i8* null, i32 0, i8 1, i8 0, i16 1, i32* null, i8* null, i8* null, i8* null, %TypeInfo* @"std.core:Object.ti", %ExtensionDef** getelementptr inbounds ([6 x %ExtensionDef*], [6 x %ExtensionDef*]* @NonExternalExtensionDefs, i32 0, i32 2), i8* null, i8* null } #0
@@ -90921,15 +91087,15 @@ index 000000000..1423af1ff
 +@"default:B<Int32>.ti" = internal global %TypeInfo { i8* null, i8 -128, i8 0, i16 0, i32 0, i8* null, i32 0, i8 1, i8 1, i16 2, i32* null, i8* bitcast (%TypeTemplate* @"default:B.tt" to i8*), i8* null, i8* null, %TypeInfo* @"default:A2.ti", %ExtensionDef** getelementptr inbounds ([6 x %ExtensionDef*], [6 x %ExtensionDef*]* @NonExternalExtensionDefs, i32 0, i32 0), i8* null, i8* null } #0
 +
 +@"default:B<T>_ed_default:A1.ft" = private global [1 x i8*] [i8* bitcast (i64 (i8 addrspace(1)*, %TypeInfo*)* @test_2_B to i8*)]
-+@"default:B<T>_ed_default:A1" = private global %ExtensionDef { i32 1, i8 1, i8* bitcast (%TypeTemplate* @"default:B.tt" to i8*), i8* bitcast (%TypeInfo* @"default:A1.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:B<T>_ed_default:A1.ft" to i8*) }
++@"default:B<T>_ed_default:A1" = private global %ExtensionDef { i32 1, i8 1, i8 -128, i16 1, i8* bitcast (%TypeTemplate* @"default:B.tt" to i8*), i8* bitcast (%TypeInfo* @"default:A1.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:B<T>_ed_default:A1.ft" to i8*) }
 +@"default:B<T>_ed_default:A2.ft" = private global [1 x i8*] [i8* bitcast (i64 (i8 addrspace(1)*, %TypeInfo*)* @test_1_B to i8*)]
-+@"default:B<T>_ed_default:A2" = private global %ExtensionDef { i32 1, i8 1, i8* bitcast (%TypeTemplate* @"default:B.tt" to i8*), i8* bitcast (%TypeInfo* @"default:A2.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:B<T>_ed_default:A2.ft" to i8*) }
++@"default:B<T>_ed_default:A2" = private global %ExtensionDef { i32 1, i8 1, i8 -128, i16 1, i8* bitcast (%TypeTemplate* @"default:B.tt" to i8*), i8* bitcast (%TypeInfo* @"default:A2.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:B<T>_ed_default:A2.ft" to i8*) }
 +@"default:A1_ed_default:A1.ft" = private global [1 x i8*] [i8* bitcast (i64 (i8 addrspace(1)*, %TypeInfo*)* @test_2_A1 to i8*)]
-+@"default:A1_ed_default:A1" = private global %ExtensionDef { i32 0, i8 1, i8* bitcast (%TypeInfo* @"default:A1.ti" to i8*), i8* bitcast (%TypeInfo* @"default:A1.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:A1_ed_default:A1.ft" to i8*) }
++@"default:A1_ed_default:A1" = private global %ExtensionDef { i32 0, i8 1, i8 -128, i16 1, i8* bitcast (%TypeInfo* @"default:A1.ti" to i8*), i8* bitcast (%TypeInfo* @"default:A1.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:A1_ed_default:A1.ft" to i8*) }
 +@"default:A2_ed_default:A1.ft" = private global [1 x i8*] [i8* bitcast (i64 (i8 addrspace(1)*, %TypeInfo*)* @test_2_A1 to i8*)]
-+@"default:A2_ed_default:A1" = private global %ExtensionDef { i32 0, i8 1, i8* bitcast (%TypeInfo* @"default:A2.ti" to i8*), i8* bitcast (%TypeInfo* @"default:A1.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:A2_ed_default:A1.ft" to i8*) }
++@"default:A2_ed_default:A1" = private global %ExtensionDef { i32 0, i8 1, i8 -128, i16 1, i8* bitcast (%TypeInfo* @"default:A2.ti" to i8*), i8* bitcast (%TypeInfo* @"default:A1.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:A2_ed_default:A1.ft" to i8*) }
 +@"default:A2_ed_default:A2.ft" = private global [1 x i8*] [i8* bitcast (i64 (i8 addrspace(1)*, %TypeInfo*)* @test_1_A2 to i8*)]
-+@"default:A2_ed_default:A2" = private global %ExtensionDef { i32 0, i8 1, i8* bitcast (%TypeInfo* @"default:A2.ti" to i8*), i8* bitcast (%TypeInfo* @"default:A2.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:A2_ed_default:A2.ft" to i8*) }
++@"default:A2_ed_default:A2" = private global %ExtensionDef { i32 0, i8 1, i8 -128, i16 1, i8* bitcast (%TypeInfo* @"default:A2.ti" to i8*), i8* bitcast (%TypeInfo* @"default:A2.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:A2_ed_default:A2.ft" to i8*) }
 +
 +@NonExternalExtensionDefs = private global [6 x %ExtensionDef*] [%ExtensionDef* @"default:B<T>_ed_default:A1", %ExtensionDef* @"default:B<T>_ed_default:A2", %ExtensionDef* @"default:A1_ed_default:A1", %ExtensionDef* @"default:A2_ed_default:A1", %ExtensionDef* @"default:A2_ed_default:A2", %ExtensionDef* null] #4
 +
@@ -90943,13 +91109,13 @@ index 000000000..1423af1ff
 +  %1 = bitcast i8 addrspace(1)* %ptr to %TypeInfo* addrspace(1)*
 +  %2 = load %TypeInfo*, %TypeInfo* addrspace(1)* %1, align 8
 +  %3 = bitcast %TypeInfo* %2 to i8*
-+  %4 = call i8* @llvm.cj.get.vtable.func(i8* %3, i64 0, i64 0), !IntroType !0
++  %4 = call i8* @llvm.cj.get.vtable.func(i8* %3, i64 0, i64 0, i8* bitcast (%TypeInfo* @"default:A1.ti" to i8*)), !IntroType !0
 +  %5 = bitcast i8* %4 to i64 (i8 addrspace(1)*, %TypeInfo*)*
 +  %6 = call i64 %5(i8 addrspace(1)* %ptr, %TypeInfo* %2)
-+  %7 = call i8* @llvm.cj.get.vtable.func(i8* %3, i64 0, i64 0), !IntroType !0
++  %7 = call i8* @llvm.cj.get.vtable.func(i8* %3, i64 0, i64 0, i8* bitcast (%TypeInfo* @"default:A1.ti" to i8*)), !IntroType !0
 +  %8 = bitcast i8* %7 to i64 (i8 addrspace(1)*, %TypeInfo*)*
 +  %9 = call i64 %8(i8 addrspace(1)* %ptr, %TypeInfo* %2)
-+  %10 = call i8* @llvm.cj.get.vtable.func(i8* %3, i64 1, i64 0), !IntroType !1
++  %10 = call i8* @llvm.cj.get.vtable.func(i8* %3, i64 1, i64 0, i8* bitcast (%TypeInfo* @"default:A2.ti" to i8*)), !IntroType !1
 +  %11 = bitcast i8* %10 to i64 (i8 addrspace(1)*, %TypeInfo*)*
 +  %12 = call i64 %11(i8 addrspace(1)* %ptr, %TypeInfo* %2)
 +  ret void
@@ -90975,7 +91141,7 @@ index 000000000..1423af1ff
 +}
 +
 +declare i8 addrspace(1)* @CJ_MCC_NewObject(i8*, i32)
-+declare i8* @llvm.cj.get.vtable.func(i8*, i64, i64)
++declare i8* @llvm.cj.get.vtable.func(i8*, i64, i64, i8*)
 +
 +attributes #0 = { "CFileKlass" }
 +
@@ -90983,20 +91149,20 @@ index 000000000..1423af1ff
 +!1 = !{!"default:A2"}
 diff --git a/llvm/test/Transforms/CJDevirtualOpt/non_generic_itable.ll b/llvm/test/Transforms/CJDevirtualOpt/non_generic_itable.ll
 new file mode 100644
-index 000000000..4b4109636
+index 000000000..b95abec16
 --- /dev/null
 +++ b/llvm/test/Transforms/CJDevirtualOpt/non_generic_itable.ll
 @@ -0,0 +1,44 @@
 +; RUN: opt '-passes=cj-devirtual-opt' --cangjie-pipeline -S < %s | FileCheck %s
 +
 +%TypeInfo = type { i8*, i8, i8, i16, i32, i8*, i32, i8, i8, i16, i32*, i8*, i8*, i8*, %TypeInfo*, %ExtensionDef**, i8*, i8* }
-+%ExtensionDef = type { i32, i8, i8*, i8*, i8*, i8* }
++%ExtensionDef = type { i32, i8, i8, i16, i8*, i8*, i8*, i8* }
 +
 +@"std.core:Object.ti" = external global %TypeInfo
 +@"default:A.ti" = internal global %TypeInfo { i8* null, i8 -128, i8 0, i16 0, i32 0, i8* null, i32 0, i8 1, i8 0, i16 1, i32* null, i8* null, i8* null, i8* null, %TypeInfo* @"std.core:Object.ti", %ExtensionDef** getelementptr inbounds ([2 x %ExtensionDef*], [2 x %ExtensionDef*]* @NonExternalExtensionDefs, i32 0, i32 0), i8* null, i8* null } #0
 +@"default:I1.ti" = internal global %TypeInfo { i8* null, i8 -127, i8 0, i16 0, i32 0, i8* null, i32 0, i8 1, i8 0, i16 0, i32* null, i8* null, i8* null, i8* null, %TypeInfo* null, %ExtensionDef** null, i8* null, i8* null } #0
 +@"default:A_ed_default:I1.ft" = internal global [1 x i8*] [i8* bitcast (i64 (i8 addrspace(1)*, %TypeInfo*)* @test_func_A to i8*)]
-+@"default:A_ed_default:I1" = internal global %ExtensionDef { i32 0, i8 1, i8* bitcast (%TypeInfo* @"default:A.ti" to i8*), i8* bitcast (%TypeInfo* @"default:I1.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:A_ed_default:I1.ft" to i8*) }
++@"default:A_ed_default:I1" = internal global %ExtensionDef { i32 0, i8 1, i8 -128, i16 1, i8* bitcast (%TypeInfo* @"default:A.ti" to i8*), i8* bitcast (%TypeInfo* @"default:I1.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:A_ed_default:I1.ft" to i8*) }
 +
 +@NonExternalExtensionDefs = internal global [2 x %ExtensionDef*] [%ExtensionDef* @"default:A_ed_default:I1", %ExtensionDef* null]
 +
@@ -91033,23 +91199,23 @@ index 000000000..4b4109636
 +!0 = !{i64 0}
 diff --git a/llvm/test/Transforms/CJDevirtualOpt/non_generic_vtable.ll b/llvm/test/Transforms/CJDevirtualOpt/non_generic_vtable.ll
 new file mode 100644
-index 000000000..a332e8981
+index 000000000..1df8d9607
 --- /dev/null
 +++ b/llvm/test/Transforms/CJDevirtualOpt/non_generic_vtable.ll
 @@ -0,0 +1,47 @@
 +; RUN: opt '-passes=cj-runtime-lowering,cj-devirtual-opt' --cangjie-pipeline -S < %s | FileCheck %s
 +
 +%TypeInfo = type { i8*, i8, i8, i16, i32, i8*, i32, i8, i8, i16, i32*, i8*, i8*, i8*, %TypeInfo*, %ExtensionDef**, i8*, i8* }
-+%ExtensionDef = type { i32, i8, i8*, i8*, i8*, i8* }
++%ExtensionDef = type { i32, i8, i8, i16, i8*, i8*, i8*, i8* }
 +
 +@"std.core:Object.ti" = external global %TypeInfo
 +@"default:A.ti" = internal global %TypeInfo { i8* null, i8 -128, i8 0, i16 0, i32 0, i8* null, i32 0, i8 1, i8 0, i16 1, i32* null, i8* null, i8* null, i8* null, %TypeInfo* @"std.core:Object.ti", %ExtensionDef** getelementptr inbounds ([3 x %ExtensionDef*], [3 x %ExtensionDef*]* @NonExternalExtensionDefs, i32 0, i32 1), i8* null, i8* null } #0
 +@"default:B.ti" = internal global %TypeInfo { i8* null, i8 -128, i8 0, i16 0, i32 0, i8* null, i32 0, i8 1, i8 0, i16 1, i32* null, i8* null, i8* null, i8* null, %TypeInfo* @"default:A.ti", %ExtensionDef** getelementptr inbounds ([3 x %ExtensionDef*], [3 x %ExtensionDef*]* @NonExternalExtensionDefs, i32 0, i32 0), i8* null, i8* null } #0
 +
 +@"default:B_ed_default:A.ft" = internal global [1 x i8*] [i8* bitcast (i64 (i8 addrspace(1)*, %TypeInfo*)* @test_func_B to i8*)]
-+@"default:B_ed_default:A" = internal global %ExtensionDef { i32 0, i8 1, i8* bitcast (%TypeInfo* @"default:B.ti" to i8*), i8* bitcast (%TypeInfo* @"default:A.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:B_ed_default:A.ft" to i8*) }
++@"default:B_ed_default:A" = internal global %ExtensionDef { i32 0, i8 1, i8 -128, i16 1, i8* bitcast (%TypeInfo* @"default:B.ti" to i8*), i8* bitcast (%TypeInfo* @"default:A.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:B_ed_default:A.ft" to i8*) }
 +@"default:A_ed_default:A.ft" = internal global [1 x i8*] [i8* bitcast (i64 (i8 addrspace(1)*, %TypeInfo*)* @test_func_A to i8*)]
-+@"default:A_ed_default:A" = internal global %ExtensionDef { i32 0, i8 1, i8* bitcast (%TypeInfo* @"default:A.ti" to i8*), i8* bitcast (%TypeInfo* @"default:A.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:A_ed_default:A.ft" to i8*) }
++@"default:A_ed_default:A" = internal global %ExtensionDef { i32 0, i8 1, i8 -128, i16 1, i8* bitcast (%TypeInfo* @"default:A.ti" to i8*), i8* bitcast (%TypeInfo* @"default:A.ti" to i8*), i8* null, i8* bitcast ([1 x i8*]* @"default:A_ed_default:A.ft" to i8*) }
 +
 +@NonExternalExtensionDefs = internal global [3 x %ExtensionDef*] [%ExtensionDef* @"default:B_ed_default:A", %ExtensionDef* @"default:A_ed_default:A", %ExtensionDef* null]
 +
@@ -91059,7 +91225,7 @@ index 000000000..a332e8981
 +  %1 = bitcast i8 addrspace(1)* %ptr to %TypeInfo* addrspace(1)*
 +  %2 = load %TypeInfo*, %TypeInfo* addrspace(1)* %1, align 8
 +  %3 = bitcast %TypeInfo* %2 to i8*
-+  %4 = call i8* @llvm.cj.get.vtable.func(i8* %3, i64 0, i64 0), !IntroType !0
++  %4 = call i8* @llvm.cj.get.vtable.func(i8* %3, i64 0, i64 0, i8* bitcast (%TypeInfo* @"default:A.ti" to i8*)), !IntroType !0
 +  %5 = bitcast i8* %4 to i64 (i8 addrspace(1)*, %TypeInfo*)*
 +  %6 = call i64 %5(i8 addrspace(1)* %ptr, %TypeInfo* %2)
 +  ret i64 %6
@@ -91079,7 +91245,7 @@ index 000000000..a332e8981
 +}
 +
 +declare i8 addrspace(1)* @CJ_MCC_NewObject(i8*, i32)
-+declare i8* @llvm.cj.get.vtable.func(i8*, i64, i64)
++declare i8* @llvm.cj.get.vtable.func(i8*, i64, i64, i8*)
 +
 +attributes #0 = { "CFileKlass" }
 +
@@ -104311,7 +104477,7 @@ index 000000000..000bc3ded
 +}
 diff --git a/llvm/test/Transforms/CJRuntimeLowering/alloca_generic.ll b/llvm/test/Transforms/CJRuntimeLowering/alloca_generic.ll
 new file mode 100644
-index 000000000..5041c0e10
+index 000000000..0c09292f4
 --- /dev/null
 +++ b/llvm/test/Transforms/CJRuntimeLowering/alloca_generic.ll
 @@ -0,0 +1,73 @@
@@ -104385,7 +104551,7 @@ index 000000000..5041c0e10
 +  ret void
 +}
 +
-+attributes #0 = { "CFileKlass" "can_malloc_with_fixed_size" }
++attributes #0 = { "CFileKlass" "NotModifiableClass" }
 +
 +!0 = !{!"Int64.Type"}
 diff --git a/llvm/test/Transforms/CJRuntimeLowering/new_finalier.ll b/llvm/test/Transforms/CJRuntimeLowering/new_finalier.ll
