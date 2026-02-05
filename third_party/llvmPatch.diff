@@ -24874,7 +24874,7 @@ index 19e00e111..324854824 100644
      if (llvm::Expected<APFloat::opStatus> op =
              f.convertFromString(value_str, APFloat::rmNearestTiesToEven)) {
 diff --git a/lldb/source/Version/Version.cpp b/lldb/source/Version/Version.cpp
-index b391fe1ea..1777c8e1c 100644
+index b391fe1ea..3adcbf8f0 100644
 --- a/lldb/source/Version/Version.cpp
 +++ b/lldb/source/Version/Version.cpp
 @@ -4,6 +4,12 @@
@@ -24930,7 +24930,7 @@ index b391fe1ea..1777c8e1c 100644
        g_version_str += "\n  llvm revision ";
        g_version_str += llvm_rev;
      }
-+    g_version_str += "\n  cangjie 1.1.0-alpha.68";
++    g_version_str += "\n  cangjie 1.1.0-alpha.69";
    }
  
    return g_version_str.c_str();
